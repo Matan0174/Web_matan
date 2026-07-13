@@ -178,6 +178,72 @@ function BrowserApp() {
     loadSettings();
   }, []);
 
+  // Handle deep linking for incoming URLs
+  const handleDeepLink = useCallback((url: string) => {
+    if (!url) return;
+    
+    // Extract the actual HTTP/HTTPS URL from any Expo or Custom Scheme wrappers
+    let cleanUrl = url;
+    const httpsIndex = cleanUrl.toLowerCase().indexOf('https://');
+    const httpIndex = cleanUrl.toLowerCase().indexOf('http://');
+    
+    if (httpsIndex !== -1) {
+      cleanUrl = cleanUrl.substring(httpsIndex);
+    } else if (httpIndex !== -1) {
+      cleanUrl = cleanUrl.substring(httpIndex);
+    } else {
+      // If it doesn't contain http:// or https://, we ignore it as it's not a web link
+      return;
+    }
+
+    // Double check it's a valid web URL
+    if (!/^https?:\/\//i.test(cleanUrl)) return;
+
+    const normalizedUrl = normalizeNavigationUrl(cleanUrl);
+    const isBlocked = isUrlProhibited(normalizedUrl, blacklist, autoBlockEnabled);
+    
+    const newId = Math.random().toString(36).substring(7);
+    const newTab: BrowserTab = {
+      id: newId,
+      url: normalizedUrl,
+      title: getDisplayDomain(normalizedUrl, false, ''),
+      canGoBack: false,
+      canGoForward: false,
+    };
+
+    setTabs(prev => [...prev, newTab]);
+    setActiveTabId(newId);
+    setIsSettingsOpen(false);
+    setIsDownloadsOpen(false);
+    setIsTabSwitcherOpen(false);
+    setIsPinModalOpen(false);
+    setIsCurrentUrlBlocked(isBlocked);
+    
+    if (!isBlocked) {
+      setUrlInput(normalizedUrl);
+    }
+  }, [blacklist, autoBlockEnabled]);
+
+  useEffect(() => {
+    // Check if the app was opened via a deep link
+    Linking.getInitialURL().then(url => {
+      if (url) {
+        handleDeepLink(url);
+      }
+    });
+
+    // Listen for deep link events while the app is running
+    const subscription = Linking.addEventListener('url', (event) => {
+      if (event.url) {
+        handleDeepLink(event.url);
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [handleDeepLink]);
+
   // Update input text and block status when active tab updates, blacklist changes or autoBlock toggles
   useEffect(() => {
     if (activeTab) {
