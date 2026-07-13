@@ -178,13 +178,15 @@ function BrowserApp() {
     loadSettings();
   }, []);
 
-  // Update input text and block status when active tab updates
+  // Update input text and block status when active tab updates, blacklist changes or autoBlock toggles
   useEffect(() => {
     if (activeTab) {
-      setUrlInput(activeTab.url);
+      if (!isInputFocused) {
+        setUrlInput(activeTab.url);
+      }
       setIsCurrentUrlBlocked(isUrlProhibited(activeTab.url, blacklist, autoBlockEnabled));
     }
-  }, [activeTabId]);
+  }, [activeTabId, blacklist, autoBlockEnabled, activeTab.url, isInputFocused]);
 
   // Back button handling on Android
   useEffect(() => {
@@ -647,7 +649,7 @@ function BrowserApp() {
                 }}
               >
                 <WebView
-                  ref={el => (webViewRefs.current[tab.id] = el)}
+                  ref={el => { webViewRefs.current[tab.id] = el; }}
                   source={{ uri: tab.url }}
                   injectedJavaScript={scrollJS}
                   onMessage={(e) => handleMessage(e, tab.id)}

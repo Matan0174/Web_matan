@@ -90,7 +90,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.bgLight,
   },
   downloadsHeader: {
-    flexDirection: 'row-reverse',
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
