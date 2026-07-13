@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "Chrome Browser",
+    "slug": "chrome-browser",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "com.matan.chromebrowser",
+      "softwareKeyboardLayoutMode": "pan"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "c171756b-f03d-446a-84b9-ec9d6ed20d21"
+      }
+    }
+  }
+}
