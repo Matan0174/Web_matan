@@ -182,8 +182,13 @@ function BrowserApp() {
   const handleDeepLink = useCallback((url: string) => {
     if (!url) return;
     
-    // Extract the actual HTTP/HTTPS URL from any Expo or Custom Scheme wrappers
+    console.log('Received deep link:', url);
+
+    // 1. Check if the URL is a direct web link or wrapped in a scheme
     let cleanUrl = url;
+    
+    // If it's our custom scheme (web-matan://), we might want to handle it differently
+    // but for now, we just look for the first occurrence of http/https
     const httpsIndex = cleanUrl.toLowerCase().indexOf('https://');
     const httpIndex = cleanUrl.toLowerCase().indexOf('http://');
     
@@ -192,12 +197,14 @@ function BrowserApp() {
     } else if (httpIndex !== -1) {
       cleanUrl = cleanUrl.substring(httpIndex);
     } else {
-      // If it doesn't contain http:// or https://, we ignore it as it's not a web link
-      return;
+      // If it's just a domain or a search term passed via scheme, normalize it
+      // For example: web-matan://google.com or web-matan://search?q=query
+      if (url.startsWith('web-matan://')) {
+        cleanUrl = url.replace('web-matan://', '');
+      } else {
+        return;
+      }
     }
-
-    // Double check it's a valid web URL
-    if (!/^https?:\/\//i.test(cleanUrl)) return;
 
     const normalizedUrl = normalizeNavigationUrl(cleanUrl);
     const isBlocked = isUrlProhibited(normalizedUrl, blacklist, autoBlockEnabled);
@@ -368,7 +375,22 @@ function BrowserApp() {
 
   // Check URL validation prior to loading
   const handleShouldStartLoadWithRequest = (request: any, tabId: string): boolean => {
-    if (isUrlProhibited(request.url, blacklist, autoBlockEnabled)) {
+    const { url } = request;
+
+    // 1. Handle non-web schemes (tel:, mailto:, whatsapp:, etc.)
+    if (!url.startsWith('http://') && !url.startsWith('https://') && !url.startsWith('about:')) {
+      Linking.canOpenURL(url).then(supported => {
+        if (supported) {
+          Linking.openURL(url);
+        } else {
+          console.warn('Cannot open external URL:', url);
+        }
+      });
+      return false; // Prevent WebView from trying to load it
+    }
+
+    // 2. Check prohibited URLs
+    if (isUrlProhibited(url, blacklist, autoBlockEnabled)) {
       if (tabId === activeTabId) {
         setIsCurrentUrlBlocked(true);
       }
