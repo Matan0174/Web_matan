@@ -11,8 +11,8 @@ import {
   TouchableOpacity,
   Text,
   Linking,
-  ScrollView,
-  RefreshControl,
+  Share,
+  Platform,
 } from 'react-native';
 import { WebView, WebViewNavigation } from 'react-native-webview';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -21,7 +21,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 // Local modular files imports
-import { COLORS } from './src/styles/globalStyles';
+import { COLORS, DROPDOWN_SHADOW } from './src/styles/globalStyles';
 import {
   isUrlProhibited,
   extractDomainName,
@@ -76,6 +76,7 @@ function BrowserApp() {
   // Address Bar inputs and general loadings
   const [urlInput, setUrlInput] = useState(DEFAULT_URL);
   const [isLoading, setIsLoading] = useState(false);
+  const [loadProgress, setLoadProgress] = useState(0);
   const [isInputFocused, setIsInputFocused] = useState(false);
 
   // Chrome UI settings and state
@@ -89,7 +90,6 @@ function BrowserApp() {
 
   // Scroll & Pull-to-refresh states configuration per tab
   const [tabsAtTop, setTabsAtTop] = useState<{ [key: string]: boolean }>({});
-
 
   const handleMessage = (event: any, tabId: string) => {
     try {
@@ -326,8 +326,6 @@ function BrowserApp() {
     }
   };
 
-
-
   // Navigation handlers
   const navigateTo = (url: string) => {
     let target = url.trim();
@@ -370,6 +368,19 @@ function BrowserApp() {
     const activeRef = webViewRefs.current[activeTabId];
     if (activeRef) {
       activeRef.reload();
+    }
+  };
+
+  // Share current page
+  const handleSharePage = async () => {
+    setIsMenuOpen(false);
+    try {
+      await Share.share({
+        message: activeTab.url,
+        url: activeTab.url,
+      });
+    } catch (e) {
+      // User cancelled or error
     }
   };
 
@@ -635,18 +646,21 @@ function BrowserApp() {
         isInputFocused={isInputFocused}
         setIsInputFocused={setIsInputFocused}
         tabsCount={tabs.length}
+        isLoading={isLoading}
+        loadProgress={loadProgress}
+        currentUrl={activeTab.url}
         handleGoHome={handleGoHome}
         handleNavigate={() => navigateTo(urlInput)}
         handleOpenMenu={() => setIsMenuOpen(true)}
         handleOpenTabSwitcher={() => setIsTabSwitcherOpen(true)}
       />
 
-      {/* 2. Three-Dots Dropdown Menu Modal */}
+      {/* 2. Chrome-style Dropdown Menu Modal */}
       {isMenuOpen && (
         <Modal
           transparent={true}
           visible={isMenuOpen}
-          animationType="none"
+          animationType="fade"
           onRequestClose={() => setIsMenuOpen(false)}
         >
           <TouchableOpacity
@@ -655,11 +669,37 @@ function BrowserApp() {
             onPress={() => setIsMenuOpen(false)}
           >
             <View style={styles.dropdownMenu}>
+              {/* New Tab */}
               <TouchableOpacity style={styles.menuItem} onPress={handleAddNewTab}>
-                <Ionicons name="add" size={20} color={COLORS.textMedium} />
+                <Ionicons name="add-outline" size={22} color={COLORS.greyDark} />
                 <Text style={styles.menuItemText}>כרטיסייה חדשה</Text>
               </TouchableOpacity>
 
+              {/* Share */}
+              <TouchableOpacity style={styles.menuItem} onPress={handleSharePage}>
+                <Ionicons
+                  name={Platform.OS === 'ios' ? 'share-outline' : 'share-social-outline'}
+                  size={22}
+                  color={COLORS.greyDark}
+                />
+                <Text style={styles.menuItemText}>שתף...</Text>
+              </TouchableOpacity>
+
+              <View style={styles.menuDivider} />
+
+              {/* Find in page */}
+              <TouchableOpacity
+                style={styles.menuItem}
+                onPress={() => {
+                  setIsMenuOpen(false);
+                  Alert.alert('מצא בדף', 'פיצ\'ר חיפוש בדף יתווסף בגרסה הבאה.');
+                }}
+              >
+                <Ionicons name="search-outline" size={22} color={COLORS.greyDark} />
+                <Text style={styles.menuItemText}>מצא בדף</Text>
+              </TouchableOpacity>
+
+              {/* History */}
               <TouchableOpacity
                 style={styles.menuItem}
                 onPress={() => {
@@ -667,10 +707,11 @@ function BrowserApp() {
                   Alert.alert('היסטוריה', 'מנגנון ההיסטוריה יישמר בגרסה הבאה.');
                 }}
               >
-                <Ionicons name="time-outline" size={20} color={COLORS.textMedium} />
+                <Ionicons name="time-outline" size={22} color={COLORS.greyDark} />
                 <Text style={styles.menuItemText}>היסטוריה</Text>
               </TouchableOpacity>
 
+              {/* Bookmarks */}
               <TouchableOpacity
                 style={styles.menuItem}
                 onPress={() => {
@@ -678,10 +719,11 @@ function BrowserApp() {
                   Alert.alert('סימניות', 'מנגנון הסימניות יישמר בגרסה הבאה.');
                 }}
               >
-                <Ionicons name="bookmark-outline" size={20} color={COLORS.textMedium} />
+                <Ionicons name="bookmark-outline" size={22} color={COLORS.greyDark} />
                 <Text style={styles.menuItemText}>סימניות</Text>
               </TouchableOpacity>
 
+              {/* Downloads */}
               <TouchableOpacity
                 style={styles.menuItem}
                 onPress={() => {
@@ -689,17 +731,18 @@ function BrowserApp() {
                   setIsDownloadsOpen(true);
                 }}
               >
-                <Ionicons name="download-outline" size={20} color={COLORS.textMedium} />
+                <Ionicons name="download-outline" size={22} color={COLORS.greyDark} />
                 <Text style={styles.menuItemText}>הורדות</Text>
               </TouchableOpacity>
 
               <View style={styles.menuDivider} />
 
+              {/* Settings / Block Management */}
               <TouchableOpacity
                 style={[styles.menuItem, styles.menuItemSettings]}
                 onPress={() => openPinModal('verify')}
               >
-                <MaterialCommunityIcons name="shield-lock-outline" size={20} color={COLORS.redWarning} />
+                <MaterialCommunityIcons name="shield-lock-outline" size={22} color={COLORS.redWarning} />
                 <Text style={[styles.menuItemText, styles.menuItemSettingsText]}>הגדרות חסימה</Text>
               </TouchableOpacity>
             </View>
@@ -749,28 +792,34 @@ function BrowserApp() {
                     if (downloadUrl) handleDownloadStart(downloadUrl);
                   }}
                   onLoadStart={() => {
-                    if (tab.id === activeTabId) setIsLoading(true);
+                    if (tab.id === activeTabId) {
+                      setIsLoading(true);
+                      setLoadProgress(0);
+                    }
                     setTabsAtTop(prev => ({ ...prev, [tab.id]: true }));
                   }}
-                  onLoadEnd={() => tab.id === activeTabId && setIsLoading(false)}
+                  onLoadProgress={({ nativeEvent }) => {
+                    if (tab.id === activeTabId) {
+                      setLoadProgress(nativeEvent.progress);
+                    }
+                  }}
+                  onLoadEnd={() => {
+                    if (tab.id === activeTabId) {
+                      setIsLoading(false);
+                      setLoadProgress(1);
+                    }
+                  }}
                   domStorageEnabled={true}
                   javaScriptEnabled={true}
                   style={{ flex: 1 }}
                 />
               </View>
             ))}
-            {isLoading && (
-              <ActivityIndicator
-                size="large"
-                color={COLORS.blueAccent}
-                style={styles.loadingIndicator}
-              />
-            )}
           </View>
         )}
       </View>
 
-      {/* 4. Bottom Navigation Navigation Controls */}
+      {/* 4. Bottom Navigation Controls — Chrome style */}
       {!isSettingsOpen && (
         <BottomBar
           canGoBack={activeCanGoBack}
@@ -779,6 +828,7 @@ function BrowserApp() {
           handleGoForward={() => webViewRefs.current[activeTabId]?.goForward()}
           handleRefresh={handleRefresh}
           handleGoHome={handleGoHome}
+          handleOpenTabSwitcher={() => setIsTabSwitcherOpen(true)}
         />
       )}
 
@@ -835,57 +885,50 @@ const styles = StyleSheet.create({
   },
   menuBackdrop: {
     flex: 1,
-    backgroundColor: 'transparent',
+    backgroundColor: COLORS.backdropLight,
   },
   dropdownMenu: {
     position: 'absolute',
-    top: 50,
-    right: 12,
+    top: 48,
+    right: 8,
     backgroundColor: COLORS.white,
-    borderRadius: 8,
-    width: 190,
-    paddingVertical: 6,
-    borderWidth: 1,
-    borderColor: COLORS.greyMedium,
-    elevation: 8,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
+    borderRadius: 12,
+    width: 220,
+    paddingVertical: 8,
+    ...DROPDOWN_SHADOW,
   },
   menuItem: {
     flexDirection: 'row-reverse',
     alignItems: 'center',
     justifyContent: 'flex-end',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    paddingVertical: 13,
+    paddingHorizontal: 18,
+    gap: 14,
   },
   menuItemText: {
     fontSize: 15,
     color: COLORS.textMedium,
-    marginRight: 12,
     textAlign: 'right',
   },
   menuDivider: {
-    height: 1,
-    backgroundColor: COLORS.greyMedium,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: COLORS.divider,
     marginVertical: 4,
+    marginHorizontal: 16,
   },
   menuItemSettings: {
     backgroundColor: COLORS.redLightBg,
+    borderRadius: 8,
+    marginHorizontal: 8,
+    marginVertical: 4,
+    paddingHorizontal: 10,
   },
   menuItemSettingsText: {
     color: COLORS.redWarning,
-    fontWeight: 'bold',
+    fontWeight: '600',
   },
   webViewWrapper: {
     flex: 1,
     backgroundColor: COLORS.white,
-  },
-  loadingIndicator: {
-    position: 'absolute',
-    top: '40%',
-    left: '50%',
-    marginLeft: -18,
   },
 });
