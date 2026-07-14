@@ -5,7 +5,6 @@ import {
   ActivityIndicator,
   Keyboard,
   BackHandler,
-  SafeAreaView,
   Alert,
   Modal,
   TouchableOpacity,
@@ -18,7 +17,7 @@ import { WebView, WebViewNavigation } from 'react-native-webview';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 // Local modular files imports
 import { COLORS, DROPDOWN_SHADOW } from './src/styles/globalStyles';
@@ -103,32 +102,85 @@ function BrowserApp() {
   };
   const scrollJS = `
     (function() {
-      var checkScroll = function(e) {
-        var winScroll = window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
-        var isAtTop = winScroll === 0;
-        
-        // Check if a sub-container event target is scrolled
-        if (e && e.target && e.target !== document && e.target !== window) {
+      var lastState = null;
+
+      function send(isAtTop) {
+        if (isAtTop !== lastState) {
+          lastState = isAtTop;
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'scroll', isAtTop: isAtTop }));
+        }
+      }
+
+      function getMainScroll() {
+        return window.scrollY || window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0;
+      }
+
+      // Walk up the DOM to find the nearest scrollable ancestor of an element
+      function findScrollableParent(el) {
+        while (el && el !== document.body && el !== document.documentElement && el !== document) {
           try {
-            if (e.target.scrollTop > 0) {
+            var style = window.getComputedStyle(el);
+            var ov = style.overflowY || style.overflow || '';
+            if ((ov === 'auto' || ov === 'scroll') && el.scrollHeight > el.clientHeight) {
+              return el;
+            }
+          } catch(e) {}
+          el = el.parentElement;
+        }
+        return null;
+      }
+
+      // Track the inner scrollable container under the user's finger
+      var trackedScrollable = null;
+
+      window.addEventListener('touchstart', function(e) {
+        if (e.touches && e.touches.length > 0) {
+          trackedScrollable = findScrollableParent(e.touches[0].target);
+        }
+      }, { passive: true, capture: true });
+
+      window.addEventListener('touchend', function() {
+        setTimeout(function() { checkScroll(); }, 100);
+      }, { passive: true, capture: true });
+
+      function checkScroll(e) {
+        var mainScroll = getMainScroll();
+        var isAtTop = mainScroll <= 1;
+
+        // Check the scroll-event target (for scroll events fired on inner containers)
+        if (isAtTop && e && e.target && e.target !== document && e.target !== window) {
+          try {
+            if (e.target.nodeType === 1 && e.target.scrollTop > 1) {
               isAtTop = false;
             }
           } catch(err) {}
         }
-        
-        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'scroll', isAtTop: isAtTop }));
-      };
-      
-      checkScroll();
-      
-      // Listen in the capturing phase to intercept scroll events from sub-elements
+
+        // Also check the scrollable container detected on touchstart
+        if (isAtTop && trackedScrollable) {
+          try {
+            if (trackedScrollable.scrollTop > 1) {
+              isAtTop = false;
+            }
+          } catch(err) {
+            trackedScrollable = null;
+          }
+        }
+
+        send(isAtTop);
+      }
+
+      // Send initial state
+      send(getMainScroll() <= 1);
+
+      // Capture-phase listener catches scroll events from nested containers too
       window.addEventListener('scroll', checkScroll, true);
-      
-      // Periodic fallback sync (runs 4 times a second)
-      var scrollInterval = setInterval(checkScroll, 250);
-      
+
+      // Periodic fallback for edge cases (SPAs that change layout without scroll events)
+      var interval = setInterval(function() { checkScroll(); }, 300);
+
       window.addEventListener('unload', function() {
-        clearInterval(scrollInterval);
+        clearInterval(interval);
       });
     })();
     true;
@@ -634,7 +686,7 @@ function BrowserApp() {
   const activeCanGoForward = activeTab.canGoForward;
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <StatusBar style="dark" backgroundColor={COLORS.white} />
 
       {/* 1. Chrome Toolbar Header Component */}
@@ -784,7 +836,7 @@ function BrowserApp() {
                   source={{ uri: tab.url }}
                   injectedJavaScript={scrollJS}
                   onMessage={(e) => handleMessage(e, tab.id)}
-                  pullToRefreshEnabled={tabsAtTop[tab.id] !== false}
+                  pullToRefreshEnabled={tabsAtTop[tab.id] === true}
                   onNavigationStateChange={(navState) => handleNavigationStateChange(navState, tab.id)}
                   onShouldStartLoadWithRequest={(request) => handleShouldStartLoadWithRequest(request, tab.id)}
                   onDownloadStart={(event: any) => {
