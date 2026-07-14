@@ -7,6 +7,11 @@
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "icon": "./assets/icon.png",
+    "androidStatusBar": {
+      "translucent": true,
+      "barStyle": "dark-content",
+      "backgroundColor": "#00000000"
+    },
     "ios": {
       "supportsTablet": true,
       "icon": "./assets/icon.png"

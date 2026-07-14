@@ -12,12 +12,13 @@ import {
   Linking,
   Share,
   Platform,
+  StatusBar as RNStatusBar,
 } from 'react-native';
 import { WebView, WebViewNavigation } from 'react-native-webview';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Local modular files imports
 import { COLORS, DROPDOWN_SHADOW } from './src/styles/globalStyles';
@@ -87,41 +88,47 @@ function BrowserApp() {
   const [downloads, setDownloads] = useState<DownloadItem[]>([]);
   const [isDownloadsOpen, setIsDownloadsOpen] = useState(false);
 
-  // Scroll & Pull-to-refresh states configuration per tab
-  const [tabsAtTop, setTabsAtTop] = useState<{ [key: string]: boolean }>({});
-
   const handleMessage = (event: any, tabId: string) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
-      if (data.type === 'scroll') {
-        setTabsAtTop(prev => ({ ...prev, [tabId]: data.isAtTop }));
+      if (data.type === 'refresh') {
+        const ref = webViewRefs.current[tabId];
+        if (ref) {
+          ref.reload();
+        }
       }
     } catch (e) {
       // Ignore other events
     }
   };
-  const scrollJS = `
+  const pullToRefreshJS = `
     (function() {
-      var lastState = null;
+      if (window.__ptrInjected) return;
+      window.__ptrInjected = true;
 
-      function send(isAtTop) {
-        if (isAtTop !== lastState) {
-          lastState = isAtTop;
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'scroll', isAtTop: isAtTop }));
-        }
-      }
+      // Create pull-to-refresh indicator element
+      var indicator = document.createElement('div');
+      indicator.style.cssText = 'position:fixed;top:-50px;left:50%;transform:translateX(-50%);width:36px;height:36px;border-radius:50%;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,0.18);display:flex;align-items:center;justify-content:center;z-index:2147483647;transition:top 0.2s ease-out,opacity 0.2s;pointer-events:none;opacity:0;';
+      var spinner = document.createElement('div');
+      spinner.style.cssText = 'width:18px;height:18px;border:2.5px solid #e0e0e0;border-top-color:#4285f4;border-radius:50%;';
+      indicator.appendChild(spinner);
+      document.body.appendChild(indicator);
 
-      function getMainScroll() {
-        return window.scrollY || window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0;
-      }
+      var styleEl = document.createElement('style');
+      styleEl.textContent = '@keyframes __ptrSpin{to{transform:rotate(360deg)}}';
+      document.head.appendChild(styleEl);
 
-      // Walk up the DOM to find the nearest scrollable ancestor of an element
-      function findScrollableParent(el) {
+      var startY = 0;
+      var pulling = false;
+      var refreshing = false;
+      var THRESHOLD = 80;
+
+      function findScrolledParent(el) {
         while (el && el !== document.body && el !== document.documentElement && el !== document) {
           try {
-            var style = window.getComputedStyle(el);
-            var ov = style.overflowY || style.overflow || '';
-            if ((ov === 'auto' || ov === 'scroll') && el.scrollHeight > el.clientHeight) {
+            var cs = window.getComputedStyle(el);
+            var ov = cs.overflowY || cs.overflow || '';
+            if ((ov === 'auto' || ov === 'scroll' || ov === 'overlay') && el.scrollHeight > el.clientHeight && el.scrollTop > 0) {
               return el;
             }
           } catch(e) {}
@@ -130,58 +137,56 @@ function BrowserApp() {
         return null;
       }
 
-      // Track the inner scrollable container under the user's finger
-      var trackedScrollable = null;
-
-      window.addEventListener('touchstart', function(e) {
-        if (e.touches && e.touches.length > 0) {
-          trackedScrollable = findScrollableParent(e.touches[0].target);
-        }
-      }, { passive: true, capture: true });
-
-      window.addEventListener('touchend', function() {
-        setTimeout(function() { checkScroll(); }, 100);
-      }, { passive: true, capture: true });
-
-      function checkScroll(e) {
-        var mainScroll = getMainScroll();
-        var isAtTop = mainScroll <= 1;
-
-        // Check the scroll-event target (for scroll events fired on inner containers)
-        if (isAtTop && e && e.target && e.target !== document && e.target !== window) {
-          try {
-            if (e.target.nodeType === 1 && e.target.scrollTop > 1) {
-              isAtTop = false;
-            }
-          } catch(err) {}
-        }
-
-        // Also check the scrollable container detected on touchstart
-        if (isAtTop && trackedScrollable) {
-          try {
-            if (trackedScrollable.scrollTop > 1) {
-              isAtTop = false;
-            }
-          } catch(err) {
-            trackedScrollable = null;
-          }
-        }
-
-        send(isAtTop);
+      function isPageAtTop(target) {
+        var mainScroll = window.scrollY || window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0;
+        if (mainScroll > 1) return false;
+        if (findScrolledParent(target)) return false;
+        return true;
       }
 
-      // Send initial state
-      send(getMainScroll() <= 1);
+      document.addEventListener('touchstart', function(e) {
+        if (refreshing || e.touches.length !== 1) return;
+        if (!isPageAtTop(e.touches[0].target)) { pulling = false; return; }
+        startY = e.touches[0].pageY;
+        pulling = true;
+      }, { passive: true });
 
-      // Capture-phase listener catches scroll events from nested containers too
-      window.addEventListener('scroll', checkScroll, true);
+      document.addEventListener('touchmove', function(e) {
+        if (!pulling || refreshing) return;
+        var mainScroll = window.scrollY || window.pageYOffset || 0;
+        if (mainScroll > 1) { pulling = false; indicator.style.top = '-50px'; indicator.style.opacity = '0'; return; }
+        var dy = e.touches[0].pageY - startY;
+        if (dy <= 0) { indicator.style.top = '-50px'; indicator.style.opacity = '0'; return; }
+        var progress = Math.min(dy / THRESHOLD, 1);
+        var pos = Math.min(dy * 0.35, 60);
+        indicator.style.top = (pos - 15) + 'px';
+        indicator.style.opacity = '' + progress;
+        spinner.style.transform = 'rotate(' + (dy * 3) + 'deg)';
+        spinner.style.animation = 'none';
+      }, { passive: true });
 
-      // Periodic fallback for edge cases (SPAs that change layout without scroll events)
-      var interval = setInterval(function() { checkScroll(); }, 300);
-
-      window.addEventListener('unload', function() {
-        clearInterval(interval);
-      });
+      document.addEventListener('touchend', function(e) {
+        if (!pulling || refreshing) return;
+        var dy = (e.changedTouches && e.changedTouches[0] ? e.changedTouches[0].pageY : 0) - startY;
+        if (dy >= THRESHOLD) {
+          refreshing = true;
+          indicator.style.top = '18px';
+          indicator.style.opacity = '1';
+          spinner.style.transform = '';
+          spinner.style.animation = '__ptrSpin 0.6s linear infinite';
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'refresh' }));
+          setTimeout(function() {
+            indicator.style.top = '-50px';
+            indicator.style.opacity = '0';
+            spinner.style.animation = 'none';
+            refreshing = false;
+          }, 1000);
+        } else {
+          indicator.style.top = '-50px';
+          indicator.style.opacity = '0';
+        }
+        pulling = false;
+      }, { passive: true });
     })();
     true;
   `;
@@ -685,9 +690,12 @@ function BrowserApp() {
   const activeCanGoBack = activeTab.canGoBack;
   const activeCanGoForward = activeTab.canGoForward;
 
+  const insets = useSafeAreaInsets();
+  const topPadding = Math.max(insets.top, RNStatusBar.currentHeight || 0);
+
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      <StatusBar style="dark" backgroundColor={COLORS.white} />
+    <View style={[styles.container, { paddingTop: topPadding }]}>
+      <StatusBar style="dark" translucent={true} backgroundColor="transparent" />
 
       {/* 1. Chrome Toolbar Header Component */}
       <ToolbarHeader
@@ -834,9 +842,9 @@ function BrowserApp() {
                 <WebView
                   ref={el => { webViewRefs.current[tab.id] = el; }}
                   source={{ uri: tab.url }}
-                  injectedJavaScript={scrollJS}
+                  injectedJavaScript={pullToRefreshJS}
                   onMessage={(e) => handleMessage(e, tab.id)}
-                  pullToRefreshEnabled={tabsAtTop[tab.id] === true}
+                  pullToRefreshEnabled={false}
                   onNavigationStateChange={(navState) => handleNavigationStateChange(navState, tab.id)}
                   onShouldStartLoadWithRequest={(request) => handleShouldStartLoadWithRequest(request, tab.id)}
                   onDownloadStart={(event: any) => {
@@ -848,7 +856,6 @@ function BrowserApp() {
                       setIsLoading(true);
                       setLoadProgress(0);
                     }
-                    setTabsAtTop(prev => ({ ...prev, [tab.id]: true }));
                   }}
                   onLoadProgress={({ nativeEvent }) => {
                     if (tab.id === activeTabId) {
@@ -926,7 +933,7 @@ function BrowserApp() {
           handleClose={() => setIsDownloadsOpen(false)}
         />
       )}
-    </SafeAreaView>
+    </View>
   );
 }
 
