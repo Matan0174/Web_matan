@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   StyleSheet,
   Text,
@@ -6,6 +6,8 @@ import {
   Modal,
   TouchableOpacity,
   ScrollView,
+  Image,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,6 +19,7 @@ interface BrowserTab {
   title: string;
   canGoBack: boolean;
   canGoForward: boolean;
+  screenshotUri?: string;
 }
 
 interface TabSwitcherModalProps {
@@ -29,6 +32,46 @@ interface TabSwitcherModalProps {
   handleCloseAllTabs: () => void;
   handleClose: () => void;
   getDisplayDomain: (url: string) => string;
+  isUrlBlocked: (url: string) => boolean;
+}
+
+function TabPreview({ url, screenshotUri, isBlocked, isActive }: { url: string; screenshotUri?: string; isBlocked: boolean; isActive: boolean }) {
+  // If the url is blocked, show blocked shield icon
+  if (isBlocked) {
+    return (
+      <View style={styles.blockedPreview}>
+        <Ionicons
+          name="shield-outline"
+          size={32}
+          color={COLORS.redWarning}
+        />
+      </View>
+    );
+  }
+
+  // If we have a local screenshot URI, render it!
+  if (screenshotUri) {
+    return (
+      <View style={styles.imagePreviewWrapper}>
+        <Image
+          source={{ uri: screenshotUri }}
+          style={styles.previewImage}
+          resizeMode="cover"
+        />
+      </View>
+    );
+  }
+
+  // Otherwise, show default globe placeholder
+  return (
+    <View style={[styles.placeholderPreview, { backgroundColor: isActive ? COLORS.blueLight : COLORS.greyLight }]}>
+      <Ionicons
+        name="globe-outline"
+        size={32}
+        color={isActive ? COLORS.blueAccent : COLORS.textLight}
+      />
+    </View>
+  );
 }
 
 export default function TabSwitcherModal({
@@ -41,6 +84,7 @@ export default function TabSwitcherModal({
   handleCloseAllTabs,
   handleClose,
   getDisplayDomain,
+  isUrlBlocked,
 }: TabSwitcherModalProps) {
   return (
     <Modal
@@ -115,22 +159,18 @@ export default function TabSwitcherModal({
                   </TouchableOpacity>
                 </View>
 
-                {/* Tab Card Body — page preview placeholder */}
+                {/* Tab Card Body — page preview */}
                 <View style={styles.tabCardBody}>
                   <View style={styles.pagePreview}>
-                    {/* Simulated page preview lines */}
-                    <View style={styles.previewHeader}>
-                      <View style={[styles.previewLine, { width: '60%', height: 8, backgroundColor: isActive ? COLORS.blueLight : COLORS.greyLight }]} />
-                    </View>
-                    <View style={styles.previewContent}>
-                      <View style={[styles.previewLine, { width: '90%', marginBottom: 6 }]} />
-                      <View style={[styles.previewLine, { width: '75%', marginBottom: 6 }]} />
-                      <View style={[styles.previewLine, { width: '85%', marginBottom: 6 }]} />
-                      <View style={[styles.previewLine, { width: '40%' }]} />
-                    </View>
+                    <TabPreview
+                      url={tab.url}
+                      screenshotUri={tab.screenshotUri}
+                      isBlocked={isUrlBlocked(tab.url)}
+                      isActive={isActive}
+                    />
                   </View>
                   <Text numberOfLines={1} style={styles.tabCardUrl}>
-                    {domain}
+                    {tab.url.replace(/^https?:\/\/(www\.)?/i, '')}
                   </Text>
                 </View>
               </TouchableOpacity>
@@ -257,16 +297,35 @@ const styles = StyleSheet.create({
   pagePreview: {
     flex: 1,
   },
-  previewHeader: {
-    marginBottom: 10,
-  },
-  previewContent: {
+  imagePreviewWrapper: {
     flex: 1,
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: COLORS.surfaceGrey,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  previewLine: {
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: COLORS.greyLight,
+  previewImage: {
+    width: '100%',
+    height: '100%',
+  },
+  previewLoading: {
+    position: 'absolute',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  placeholderPreview: {
+    flex: 1,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  blockedPreview: {
+    flex: 1,
+    borderRadius: 8,
+    backgroundColor: COLORS.redLightBg,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   tabCardUrl: {
     fontSize: 10,

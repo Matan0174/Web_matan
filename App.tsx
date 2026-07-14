@@ -15,6 +15,7 @@ import {
   StatusBar as RNStatusBar,
 } from 'react-native';
 import { WebView, WebViewNavigation } from 'react-native-webview';
+import { captureRef } from 'react-native-view-shot';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -46,6 +47,7 @@ interface BrowserTab {
   title: string;
   canGoBack: boolean;
   canGoForward: boolean;
+  screenshotUri?: string;
 }
 
 interface DownloadItem {
@@ -72,6 +74,32 @@ function BrowserApp() {
   ]);
   const [activeTabId, setActiveTabId] = useState('1');
   const [isTabSwitcherOpen, setIsTabSwitcherOpen] = useState(false);
+  const [hasLoadedFromStorage, setHasLoadedFromStorage] = useState(false);
+
+  const viewRefs = useRef<{ [key: string]: View | null }>({});
+
+  const captureActiveTabScreenshot = async (tabId: string) => {
+    try {
+      const viewRef = viewRefs.current[tabId];
+      if (viewRef) {
+        const uri = await captureRef(viewRef, {
+          format: 'jpg',
+          quality: 0.8,
+          result: 'tmpfile',
+        });
+        setTabs(prev =>
+          prev.map(t => (t.id === tabId ? { ...t, screenshotUri: uri } : t))
+        );
+      }
+    } catch (e) {
+      console.warn('Failed to capture active tab screenshot', e);
+    }
+  };
+
+  const handleOpenTabSwitcher = async () => {
+    await captureActiveTabScreenshot(activeTabId);
+    setIsTabSwitcherOpen(true);
+  };
 
   // Address Bar inputs and general loadings
   const [urlInput, setUrlInput] = useState(DEFAULT_URL);
@@ -228,12 +256,47 @@ function BrowserApp() {
 
         const savedDls = await AsyncStorage.getItem('@browser_downloads');
         if (savedDls) setDownloads(JSON.parse(savedDls));
+
+        const savedTabs = await AsyncStorage.getItem('@browser_tabs');
+        const savedActiveTabId = await AsyncStorage.getItem('@browser_active_tab_id');
+        if (savedTabs) {
+          const parsedTabs = JSON.parse(savedTabs);
+          if (parsedTabs && parsedTabs.length > 0) {
+            setTabs(parsedTabs);
+            if (savedActiveTabId) {
+              setActiveTabId(savedActiveTabId);
+              const activeTab = parsedTabs.find((t: any) => t.id === savedActiveTabId) || parsedTabs[0];
+              setUrlInput(activeTab.url);
+            } else {
+              setActiveTabId(parsedTabs[0].id);
+              setUrlInput(parsedTabs[0].url);
+            }
+          }
+        }
       } catch (e) {
         console.error('Failed to load settings from storage', e);
+      } finally {
+        setHasLoadedFromStorage(true);
       }
     };
     loadSettings();
   }, []);
+
+  // Save tabs and active tab ID whenever they change
+  useEffect(() => {
+    if (!hasLoadedFromStorage) return;
+
+    const saveTabsState = async () => {
+      try {
+        await AsyncStorage.setItem('@browser_tabs', JSON.stringify(tabs));
+        await AsyncStorage.setItem('@browser_active_tab_id', activeTabId);
+      } catch (e) {
+        console.error('Failed to save tabs state to storage', e);
+      }
+    };
+
+    saveTabsState();
+  }, [tabs, activeTabId, hasLoadedFromStorage]);
 
   // Handle deep linking for incoming URLs
   const handleDeepLink = useCallback((url: string) => {
@@ -275,6 +338,7 @@ function BrowserApp() {
       canGoForward: false,
     };
 
+    captureActiveTabScreenshot(activeTabId);
     setTabs(prev => [...prev, newTab]);
     setActiveTabId(newId);
     setIsSettingsOpen(false);
@@ -592,7 +656,8 @@ function BrowserApp() {
   };
 
   // MULTI TAB MANAGEMENTS
-  const handleAddNewTab = () => {
+  const handleAddNewTab = async () => {
+    await captureActiveTabScreenshot(activeTabId);
     const newId = Math.random().toString(36).substring(7);
     const newTab: BrowserTab = {
       id: newId,
@@ -601,7 +666,7 @@ function BrowserApp() {
       canGoBack: false,
       canGoForward: false,
     };
-    setTabs([...tabs, newTab]);
+    setTabs(prev => [...prev, newTab]);
     setActiveTabId(newId);
     setIsTabSwitcherOpen(false);
     setIsMenuOpen(false);
@@ -712,7 +777,7 @@ function BrowserApp() {
         handleGoHome={handleGoHome}
         handleNavigate={() => navigateTo(urlInput)}
         handleOpenMenu={() => setIsMenuOpen(true)}
-        handleOpenTabSwitcher={() => setIsTabSwitcherOpen(true)}
+        handleOpenTabSwitcher={handleOpenTabSwitcher}
       />
 
       {/* 2. Chrome-style Dropdown Menu Modal */}
@@ -834,6 +899,8 @@ function BrowserApp() {
             {tabs.map(tab => (
               <View
                 key={tab.id}
+                ref={el => { viewRefs.current[tab.id] = el; }}
+                collapsable={false}
                 style={{
                   display: tab.id === activeTabId ? 'flex' : 'none',
                   flex: 1,
@@ -887,7 +954,7 @@ function BrowserApp() {
           handleGoForward={() => webViewRefs.current[activeTabId]?.goForward()}
           handleRefresh={handleRefresh}
           handleGoHome={handleGoHome}
-          handleOpenTabSwitcher={() => setIsTabSwitcherOpen(true)}
+          handleOpenTabSwitcher={handleOpenTabSwitcher}
         />
       )}
 
@@ -921,6 +988,7 @@ function BrowserApp() {
           handleCloseAllTabs={handleCloseAllTabs}
           handleClose={() => setIsTabSwitcherOpen(false)}
           getDisplayDomain={(url) => getDisplayDomain(url, false, '')}
+          isUrlBlocked={(url) => isUrlProhibited(url, blacklist, autoBlockEnabled)}
         />
       )}
 
