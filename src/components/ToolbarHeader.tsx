@@ -8,9 +8,11 @@ import {
   Animated,
   Share,
   Platform,
+  FlatList,
+  Keyboard,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { COLORS, SHADOWS } from '../styles/globalStyles';
+import { COLORS, SHADOWS, DROPDOWN_SHADOW } from '../styles/globalStyles';
 
 interface ToolbarHeaderProps {
   urlInput: string;
@@ -27,6 +29,8 @@ interface ToolbarHeaderProps {
   handleNavigate: () => void;
   handleOpenMenu: () => void;
   handleOpenTabSwitcher: () => void;
+  suggestions?: string[];
+  onSelectSuggestion?: (suggestion: string) => void;
 }
 
 export default function ToolbarHeader({
@@ -44,6 +48,8 @@ export default function ToolbarHeader({
   handleNavigate,
   handleOpenMenu,
   handleOpenTabSwitcher,
+  suggestions = [],
+  onSelectSuggestion,
 }: ToolbarHeaderProps) {
   // Animated progress bar width
   const progressAnim = useRef(new Animated.Value(0)).current;
@@ -86,6 +92,8 @@ export default function ToolbarHeader({
       // User cancelled or error
     }
   };
+
+  const showSuggestions = isInputFocused && suggestions.length > 0;
 
   return (
     <View style={styles.toolbarWrapper}>
@@ -197,6 +205,41 @@ export default function ToolbarHeader({
           ]}
         />
       </Animated.View>
+
+      {/* Search Suggestions Dropdown */}
+      {showSuggestions && (
+        <View style={styles.suggestionsContainer}>
+          {suggestions.map((item, index) => (
+            <TouchableOpacity
+              key={`${item}-${index}`}
+              style={[
+                styles.suggestionRow,
+                index === suggestions.length - 1 && styles.suggestionRowLast,
+              ]}
+              onPress={() => onSelectSuggestion?.(item)}
+              activeOpacity={0.6}
+            >
+              <Ionicons
+                name="search-outline"
+                size={16}
+                color={COLORS.textLight}
+                style={styles.suggestionIcon}
+              />
+              <Text style={styles.suggestionText} numberOfLines={1}>
+                {item}
+              </Text>
+              {/* Arrow to fill suggestion into input */}
+              <TouchableOpacity
+                onPress={() => setUrlInput(item)}
+                style={styles.suggestionFillBtn}
+                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+              >
+                <Ionicons name="arrow-up-outline" size={16} color={COLORS.textLight} style={{ transform: [{ rotate: '-45deg' }] }} />
+              </TouchableOpacity>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
     </View>
   );
 }
@@ -206,6 +249,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.white,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: COLORS.divider,
+    zIndex: 100,
     ...SHADOWS,
   },
   toolbarHeader: {
@@ -282,5 +326,36 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.blueProgressBar,
     borderTopRightRadius: 2,
     borderBottomRightRadius: 2,
+  },
+  // Search Suggestions styles
+  suggestionsContainer: {
+    backgroundColor: COLORS.white,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: COLORS.divider,
+    paddingHorizontal: 4,
+    paddingBottom: 4,
+  },
+  suggestionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 11,
+    paddingHorizontal: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: COLORS.divider,
+  },
+  suggestionRowLast: {
+    borderBottomWidth: 0,
+  },
+  suggestionIcon: {
+    marginRight: 14,
+  },
+  suggestionText: {
+    flex: 1,
+    fontSize: 15,
+    color: COLORS.textDark,
+  },
+  suggestionFillBtn: {
+    padding: 4,
+    marginLeft: 8,
   },
 });

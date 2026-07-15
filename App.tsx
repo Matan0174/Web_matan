@@ -31,11 +31,12 @@ import {
 } from './src/utils/urlHelper';
 
 import ToolbarHeader from './src/components/ToolbarHeader';
-import BottomBar from './src/components/BottomBar';
 import BlockedScreen from './src/components/BlockedScreen';
 import PinModal from './src/components/PinModal';
 import TabSwitcherModal from './src/components/TabSwitcherModal';
 import DownloadsModal from './src/components/DownloadsModal';
+import HistoryModal, { HistoryItem } from './src/components/HistoryModal';
+import BookmarksModal, { BookmarkItem } from './src/components/BookmarksModal';
 import SettingsScreen from './src/screens/SettingsScreen';
 
 const DEFAULT_PIN = '1234';
@@ -115,6 +116,65 @@ function BrowserApp() {
   // Downloads Panel state
   const [downloads, setDownloads] = useState<DownloadItem[]>([]);
   const [isDownloadsOpen, setIsDownloadsOpen] = useState(false);
+
+  // History state
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+
+  // Bookmarks state
+  const [bookmarks, setBookmarks] = useState<BookmarkItem[]>([]);
+  const [isBookmarksOpen, setIsBookmarksOpen] = useState(false);
+
+  // Search Suggestions state
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const suggestionsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const fetchSuggestions = useCallback((query: string) => {
+    if (suggestionsTimer.current) clearTimeout(suggestionsTimer.current);
+
+    if (!query || query.length < 2) {
+      setSuggestions([]);
+      return;
+    }
+
+    // Skip fetching suggestions if input looks like a full URL
+    if (/^https?:\/\//i.test(query)) {
+      setSuggestions([]);
+      return;
+    }
+
+    suggestionsTimer.current = setTimeout(async () => {
+      try {
+        const response = await fetch(
+          `https://suggestqueries.google.com/complete/search?client=chrome&q=${encodeURIComponent(query)}`
+        );
+        const text = await response.text();
+        const parsed = JSON.parse(text);
+        // Google returns: [query, [suggestions], ...]  
+        if (Array.isArray(parsed) && Array.isArray(parsed[1])) {
+          setSuggestions(parsed[1].slice(0, 6));
+        }
+      } catch (e) {
+        // Silently fail - suggestions are not critical
+      }
+    }, 250); // 250ms debounce
+  }, []);
+
+  const handleSelectSuggestion = (suggestion: string) => {
+    setSuggestions([]);
+    setUrlInput(suggestion);
+    navigateTo(suggestion);
+    Keyboard.dismiss();
+  };
+
+  // Fetch suggestions when urlInput changes while focused
+  useEffect(() => {
+    if (isInputFocused) {
+      fetchSuggestions(urlInput);
+    } else {
+      setSuggestions([]);
+    }
+  }, [urlInput, isInputFocused, fetchSuggestions]);
 
   const handleMessage = (event: any, tabId: string) => {
     try {
@@ -257,6 +317,12 @@ function BrowserApp() {
         const savedDls = await AsyncStorage.getItem('@browser_downloads');
         if (savedDls) setDownloads(JSON.parse(savedDls));
 
+        const savedHistory = await AsyncStorage.getItem('@browser_history');
+        if (savedHistory) setHistory(JSON.parse(savedHistory));
+
+        const savedBookmarks = await AsyncStorage.getItem('@browser_bookmarks');
+        if (savedBookmarks) setBookmarks(JSON.parse(savedBookmarks));
+
         const savedTabs = await AsyncStorage.getItem('@browser_tabs');
         const savedActiveTabId = await AsyncStorage.getItem('@browser_active_tab_id');
         if (savedTabs) {
@@ -389,6 +455,14 @@ function BrowserApp() {
         setIsSettingsOpen(false);
         return true;
       }
+      if (isHistoryOpen) {
+        setIsHistoryOpen(false);
+        return true;
+      }
+      if (isBookmarksOpen) {
+        setIsBookmarksOpen(false);
+        return true;
+      }
       if (isDownloadsOpen) {
         setIsDownloadsOpen(false);
         return true;
@@ -417,7 +491,7 @@ function BrowserApp() {
 
     const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
     return () => subscription.remove();
-  }, [activeTabId, tabs, isSettingsOpen, isDownloadsOpen, isTabSwitcherOpen, isPinModalOpen, isCurrentUrlBlocked]);
+  }, [activeTabId, tabs, isSettingsOpen, isDownloadsOpen, isHistoryOpen, isBookmarksOpen, isTabSwitcherOpen, isPinModalOpen, isCurrentUrlBlocked]);
 
   // Save blacklisting details to AsyncStorage
   const saveBlacklist = async (newList: string[]) => {
@@ -532,13 +606,15 @@ function BrowserApp() {
   };
 
   const handleNavigationStateChange = (navState: WebViewNavigation, tabId: string) => {
+    const pageTitle = navState.title || getDisplayDomain(navState.url, false, '');
+
     setTabs(prevTabs =>
       prevTabs.map(t => {
         if (t.id === tabId) {
           return {
             ...t,
             url: navState.url,
-            title: navState.title || getDisplayDomain(navState.url, false, ''),
+            title: pageTitle,
             canGoBack: navState.canGoBack,
             canGoForward: navState.canGoForward,
           };
@@ -546,6 +622,23 @@ function BrowserApp() {
         return t;
       })
     );
+
+    // Record history for completed page loads
+    if (tabId === activeTabId && navState.url && !navState.loading) {
+      // Avoid duplicates for the same URL in quick succession
+      setHistory(prev => {
+        if (prev.length > 0 && prev[0].url === navState.url) return prev;
+        const newItem: HistoryItem = {
+          id: Math.random().toString(36).substring(7),
+          url: navState.url,
+          title: pageTitle,
+          timestamp: Date.now(),
+        };
+        const updated = [newItem, ...prev].slice(0, 500); // Keep last 500 entries
+        AsyncStorage.setItem('@browser_history', JSON.stringify(updated)).catch(() => {});
+        return updated;
+      });
+    }
 
     if (tabId === activeTabId) {
       if (isUrlProhibited(navState.url, blacklist, autoBlockEnabled)) {
@@ -641,6 +734,78 @@ function BrowserApp() {
           style: 'destructive',
           onPress: () => {
             const updated = blacklist.filter(item => item !== domain);
+            saveBlacklist(updated);
+          },
+        },
+      ]
+    );
+  };
+
+  // History helpers
+  const handleClearHistory = async () => {
+    setHistory([]);
+    await AsyncStorage.removeItem('@browser_history');
+  };
+
+  const handleHistoryNavigate = (url: string) => {
+    setIsHistoryOpen(false);
+    navigateTo(url);
+  };
+
+  // Bookmarks helpers
+  const isCurrentPageBookmarked = bookmarks.some(b => b.url === activeTab.url);
+
+  const handleToggleBookmark = async () => {
+    setIsMenuOpen(false);
+    if (isCurrentPageBookmarked) {
+      const updated = bookmarks.filter(b => b.url !== activeTab.url);
+      setBookmarks(updated);
+      await AsyncStorage.setItem('@browser_bookmarks', JSON.stringify(updated));
+    } else {
+      const newBookmark: BookmarkItem = {
+        id: Math.random().toString(36).substring(7),
+        url: activeTab.url,
+        title: activeTab.title,
+        timestamp: Date.now(),
+      };
+      const updated = [newBookmark, ...bookmarks];
+      setBookmarks(updated);
+      await AsyncStorage.setItem('@browser_bookmarks', JSON.stringify(updated));
+    }
+  };
+
+  const handleRemoveBookmark = async (id: string) => {
+    const updated = bookmarks.filter(b => b.id !== id);
+    setBookmarks(updated);
+    await AsyncStorage.setItem('@browser_bookmarks', JSON.stringify(updated));
+  };
+
+  const handleBookmarkNavigate = (url: string) => {
+    setIsBookmarksOpen(false);
+    navigateTo(url);
+  };
+
+  // Quick-block current site from menu (no PIN required)
+  const handleQuickBlockSite = () => {
+    setIsMenuOpen(false);
+    const domain = extractDomainName(activeTab.url);
+    if (!domain) return;
+
+    if (blacklist.includes(domain)) {
+      Alert.alert('הודעה', 'אתר זה כבר קיים ברשימת החסימה.');
+      return;
+    }
+
+    Alert.alert(
+      'חסימת אתר',
+      `האם לחסום את ${domain}?`,
+      [
+        { text: 'ביטול', style: 'cancel' },
+        {
+          text: 'חסום',
+          style: 'destructive',
+          onPress: () => {
+            const updated = [...blacklist, domain];
             saveBlacklist(updated);
           },
         },
@@ -778,6 +943,8 @@ function BrowserApp() {
         handleNavigate={() => navigateTo(urlInput)}
         handleOpenMenu={() => setIsMenuOpen(true)}
         handleOpenTabSwitcher={handleOpenTabSwitcher}
+        suggestions={suggestions}
+        onSelectSuggestion={handleSelectSuggestion}
       />
 
       {/* 2. Chrome-style Dropdown Menu Modal */}
@@ -794,6 +961,49 @@ function BrowserApp() {
             onPress={() => setIsMenuOpen(false)}
           >
             <View style={styles.dropdownMenu}>
+              {/* Navigation Row: Back / Forward / Refresh / Home */}
+              {/* Note: disabled removed — WebView handles no-op gracefully, avoids stale canGoBack/canGoForward state */}
+              <View style={styles.navRow}>
+                <TouchableOpacity
+                  onPress={() => { setIsMenuOpen(false); webViewRefs.current[activeTabId]?.goForward(); }}
+                  style={styles.navBtn}
+                  activeOpacity={0.6}
+                >
+                  <Ionicons
+                    name="chevron-forward"
+                    size={22}
+                    color={COLORS.textDark}
+                  />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => { setIsMenuOpen(false); webViewRefs.current[activeTabId]?.goBack(); }}
+                  style={styles.navBtn}
+                  activeOpacity={0.6}
+                >
+                  <Ionicons
+                    name="chevron-back"
+                    size={22}
+                    color={COLORS.textDark}
+                  />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => { setIsMenuOpen(false); handleRefresh(); }}
+                  style={styles.navBtn}
+                  activeOpacity={0.6}
+                >
+                  <Ionicons name="reload-outline" size={20} color={COLORS.textDark} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => { setIsMenuOpen(false); handleGoHome(); }}
+                  style={styles.navBtn}
+                  activeOpacity={0.6}
+                >
+                  <Ionicons name="home-outline" size={20} color={COLORS.textDark} />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.menuDivider} />
+
               {/* New Tab */}
               <TouchableOpacity style={styles.menuItem} onPress={handleAddNewTab}>
                 <Ionicons name="add-outline" size={22} color={COLORS.greyDark} />
@@ -808,6 +1018,18 @@ function BrowserApp() {
                   color={COLORS.greyDark}
                 />
                 <Text style={styles.menuItemText}>שתף...</Text>
+              </TouchableOpacity>
+
+              {/* Bookmark Toggle */}
+              <TouchableOpacity style={styles.menuItem} onPress={handleToggleBookmark}>
+                <Ionicons
+                  name={isCurrentPageBookmarked ? 'bookmark' : 'bookmark-outline'}
+                  size={22}
+                  color={isCurrentPageBookmarked ? COLORS.blueAccent : COLORS.greyDark}
+                />
+                <Text style={[styles.menuItemText, isCurrentPageBookmarked && { color: COLORS.blueAccent }]}>
+                  {isCurrentPageBookmarked ? 'הסר סימנייה' : 'הוסף סימנייה'}
+                </Text>
               </TouchableOpacity>
 
               <View style={styles.menuDivider} />
@@ -829,7 +1051,7 @@ function BrowserApp() {
                 style={styles.menuItem}
                 onPress={() => {
                   setIsMenuOpen(false);
-                  Alert.alert('היסטוריה', 'מנגנון ההיסטוריה יישמר בגרסה הבאה.');
+                  setIsHistoryOpen(true);
                 }}
               >
                 <Ionicons name="time-outline" size={22} color={COLORS.greyDark} />
@@ -841,7 +1063,7 @@ function BrowserApp() {
                 style={styles.menuItem}
                 onPress={() => {
                   setIsMenuOpen(false);
-                  Alert.alert('סימניות', 'מנגנון הסימניות יישמר בגרסה הבאה.');
+                  setIsBookmarksOpen(true);
                 }}
               >
                 <Ionicons name="bookmark-outline" size={22} color={COLORS.greyDark} />
@@ -862,7 +1084,16 @@ function BrowserApp() {
 
               <View style={styles.menuDivider} />
 
-              {/* Settings / Block Management */}
+              {/* Quick Block Site — no PIN required */}
+              <TouchableOpacity
+                style={[styles.menuItem, styles.menuItemBlock]}
+                onPress={handleQuickBlockSite}
+              >
+                <Ionicons name="ban-outline" size={22} color={COLORS.redWarning} />
+                <Text style={[styles.menuItemText, { color: COLORS.redWarning }]}>חסום אתר זה</Text>
+              </TouchableOpacity>
+
+              {/* Settings / Block Management — requires PIN */}
               <TouchableOpacity
                 style={[styles.menuItem, styles.menuItemSettings]}
                 onPress={() => openPinModal('verify')}
@@ -945,18 +1176,7 @@ function BrowserApp() {
         )}
       </View>
 
-      {/* 4. Bottom Navigation Controls — Chrome style */}
-      {!isSettingsOpen && (
-        <BottomBar
-          canGoBack={activeCanGoBack}
-          canGoForward={activeCanGoForward}
-          handleGoBack={() => webViewRefs.current[activeTabId]?.goBack()}
-          handleGoForward={() => webViewRefs.current[activeTabId]?.goForward()}
-          handleRefresh={handleRefresh}
-          handleGoHome={handleGoHome}
-          handleOpenTabSwitcher={handleOpenTabSwitcher}
-        />
-      )}
+      {/* 4. Bottom Navigation Controls — REMOVED, moved to dropdown menu */}
 
       {/* 5. Custom Security Pin Modal */}
       {isPinModalOpen && (
@@ -993,6 +1213,28 @@ function BrowserApp() {
       )}
 
       {/* 7. Downloads Management Modal */}
+      {/* 8. History Modal */}
+      {isHistoryOpen && (
+        <HistoryModal
+          visible={isHistoryOpen}
+          history={history}
+          handleNavigateToUrl={handleHistoryNavigate}
+          handleClearHistory={handleClearHistory}
+          handleClose={() => setIsHistoryOpen(false)}
+        />
+      )}
+
+      {/* 9. Bookmarks Modal */}
+      {isBookmarksOpen && (
+        <BookmarksModal
+          visible={isBookmarksOpen}
+          bookmarks={bookmarks}
+          handleNavigateToUrl={handleBookmarkNavigate}
+          handleRemoveBookmark={handleRemoveBookmark}
+          handleClose={() => setIsBookmarksOpen(false)}
+        />
+      )}
+
       {isDownloadsOpen && (
         <DownloadsModal
           visible={isDownloadsOpen}
@@ -1042,6 +1284,26 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.divider,
     marginVertical: 4,
     marginHorizontal: 16,
+  },
+  navRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-evenly',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+  },
+  navBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: COLORS.greyLight,
+  },
+  menuItemBlock: {
+    marginHorizontal: 8,
+    marginTop: 2,
+    marginBottom: 2,
   },
   menuItemSettings: {
     backgroundColor: COLORS.redLightBg,
