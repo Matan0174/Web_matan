@@ -310,13 +310,26 @@ function BrowserApp() {
   }, [activeTabId, blacklist, autoBlockEnabled, activeTab.url, isInputFocused]);
 
   const handleGoHome = () => {
-    setIsCurrentUrlBlocked(false);
-    // Navigate via injectJavaScript to preserve back history.
-    // handleNavigationStateChange will update tab.url and title.
-    setUrlInput(DEFAULT_URL);
-    const activeRef = webViewRefs.current[activeTabId];
-    if (activeRef) {
-      activeRef.injectJavaScript(`window.location.href = '${DEFAULT_URL}';`);
+    if (isCurrentUrlBlocked) {
+      setIsCurrentUrlBlocked(false);
+      const activeRef = webViewRefs.current[activeTabId];
+      if (activeRef) {
+        // WebView is still on the safe page since the bad navigation was aborted.
+        // Reloading it forces onNavigationStateChange to fire with the safe URL,
+        // which fixes the tabs state and the address bar automatically.
+        activeRef.reload();
+      } else {
+        setUrlInput(DEFAULT_URL);
+        setTabs(prev => prev.map(t => (t.id === activeTabId ? { ...t, url: DEFAULT_URL } : t)));
+      }
+    } else {
+      // Normal Home button clicked from Toolbar
+      setIsCurrentUrlBlocked(false);
+      setUrlInput(DEFAULT_URL);
+      const activeRef = webViewRefs.current[activeTabId];
+      if (activeRef) {
+        activeRef.injectJavaScript(`window.location.href = '${DEFAULT_URL}';`);
+      }
     }
   };
 
@@ -532,21 +545,7 @@ function BrowserApp() {
 
       {/* 3. Main View */}
       <View style={styles.webViewWrapper}>
-        {isSettingsOpen ? (
-          <SettingsScreen
-            autoBlockEnabled={autoBlockEnabled}
-            saveAutoBlock={saveAutoBlock}
-            blacklist={blacklist}
-            newBlacklistDomain={newBlacklistDomain}
-            setNewBlacklistDomain={setNewBlacklistDomain}
-            handleAddBlacklist={handleAddBlacklist}
-            handleRemoveBlacklist={handleRemoveBlacklist}
-            openChangePinModal={() => openPinModal('change_current')}
-            handleClose={() => setIsSettingsOpen(false)}
-          />
-        ) : isCurrentUrlBlocked ? (
-          <BlockedScreen handleGoHome={handleGoHome} />
-        ) : (
+        <View style={{ flex: 1, display: (isSettingsOpen || isCurrentUrlBlocked) ? 'none' : 'flex' }}>
           <WebViewContainer
             tabs={tabs}
             activeTabId={activeTabId}
@@ -578,6 +577,24 @@ function BrowserApp() {
               }
             }}
           />
+        </View>
+
+        {isSettingsOpen && (
+          <SettingsScreen
+            autoBlockEnabled={autoBlockEnabled}
+            saveAutoBlock={saveAutoBlock}
+            blacklist={blacklist}
+            newBlacklistDomain={newBlacklistDomain}
+            setNewBlacklistDomain={setNewBlacklistDomain}
+            handleAddBlacklist={handleAddBlacklist}
+            handleRemoveBlacklist={handleRemoveBlacklist}
+            openChangePinModal={() => openPinModal('change_current')}
+            handleClose={() => setIsSettingsOpen(false)}
+          />
+        )}
+        
+        {isCurrentUrlBlocked && !isSettingsOpen && (
+          <BlockedScreen handleGoHome={handleGoHome} />
         )}
       </View>
 

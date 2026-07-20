@@ -12,6 +12,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../styles/globalStyles';
 
 import { BookmarkItem } from '../types/browser';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
 export type { BookmarkItem };
 
 interface BookmarksModalProps {
@@ -90,7 +92,7 @@ export default function BookmarksModal({
       animationType="slide"
       onRequestClose={handleClose}
     >
-      <View style={styles.container}>
+      <SafeAreaView style={styles.container}>
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={handleClose} style={styles.backBtn}>
@@ -116,7 +118,7 @@ export default function BookmarksModal({
             showsVerticalScrollIndicator={false}
           />
         )}
-      </View>
+      </SafeAreaView>
     </Modal>
   );
 }

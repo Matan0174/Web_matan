@@ -12,6 +12,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { COLORS, DROPDOWN_SHADOW } from '../styles/globalStyles';
 
 import { HistoryItem } from '../types/browser';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
 export type { HistoryItem };
 
 interface HistoryModalProps {
@@ -104,7 +106,7 @@ export default function HistoryModal({
       animationType="slide"
       onRequestClose={handleClose}
     >
-      <View style={styles.container}>
+      <SafeAreaView style={styles.container}>
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={handleClose} style={styles.backBtn}>
@@ -136,7 +138,7 @@ export default function HistoryModal({
             showsVerticalScrollIndicator={false}
           />
         )}
-      </View>
+      </SafeAreaView>
     </Modal>
   );
 }

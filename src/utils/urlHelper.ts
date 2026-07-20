@@ -154,6 +154,9 @@ export const guessDownloadFilename = (
   const mimeToExt: { [key: string]: string } = {
     'application/vnd.android.package-archive': '.apk',
     'application/octet-stream': '.apk', // Often APKs are served as octet-stream
+    'binary/octet-stream': '.apk',
+    'application/force-download': '.apk',
+    'application/x-download': '.apk',
     'application/pdf': '.pdf',
     'image/png': '.png',
     'image/jpeg': '.jpg',
@@ -174,7 +177,8 @@ export const guessDownloadFilename = (
   // If the file is an APK or we have a solid expected extension
   if (
     mimeType?.toLowerCase() === 'application/vnd.android.package-archive' || 
-    (url && url.toLowerCase().includes('.apk'))
+    (url && url.toLowerCase().includes('.apk')) ||
+    (url && url.toLowerCase().includes('expo.dev/artifacts/eas'))
   ) {
     if (currentExt !== '.apk') {
       if (['.bin', '.php', '.html', '.do', ''].includes(currentExt)) {
@@ -193,6 +197,11 @@ export const guessDownloadFilename = (
         filename = filename + expectedExt;
       }
     }
+  }
+
+  // Absolute fallback: If NO extension exists at all, assume APK for Android convenience
+  if (!filename.includes('.')) {
+    filename += '.apk';
   }
 
   return filename;
