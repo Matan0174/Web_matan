@@ -88,3 +88,100 @@ export const getDisplayDomain = (url: string, isInputFocused: boolean, urlInput:
     return url;
   }
 };
+
+/**
+ * Guesses the filename and extension for a download based on URL, Content-Disposition, and MIME type.
+ */
+export const guessDownloadFilename = (
+  url: string,
+  contentDisposition?: string,
+  mimeType?: string
+): string => {
+  let filename = '';
+
+  // 1. Try to extract from Content-Disposition header
+  if (contentDisposition) {
+    const filenameMatch = contentDisposition.match(/filename\s*=\s*["']?([^"';\n]+)["']?/i);
+    if (filenameMatch && filenameMatch[1]) {
+      filename = filenameMatch[1].trim();
+    } else {
+      const filenameStarMatch = contentDisposition.match(/filename\*\s*=\s*utf-8''([^"';\n]+)/i);
+      if (filenameStarMatch && filenameStarMatch[1]) {
+        try {
+          filename = decodeURIComponent(filenameStarMatch[1].trim());
+        } catch (e) {}
+      }
+    }
+  }
+
+  // 2. Try to extract from the URL path
+  if (!filename && url) {
+    try {
+      const path = url.split('?')[0].split('#')[0];
+      const parts = path.split('/');
+      const lastPart = parts[parts.length - 1];
+      if (lastPart) {
+        filename = decodeURIComponent(lastPart);
+      }
+    } catch (e) {}
+  }
+
+  // Fallback if still empty
+  if (!filename) {
+    filename = 'downloaded_file';
+  }
+
+  // Clean the filename of invalid characters
+  filename = filename.replace(/[/\\?%*:|"<>\s]/g, '_');
+
+  // 3. Ensure correct extension based on MIME type (especially for APKs or other binary streams that might save as .bin)
+  const extMatch = filename.match(/\.([a-zA-Z0-9]+)$/);
+  const currentExt = extMatch ? `.${extMatch[1].toLowerCase()}` : '';
+
+  const mimeToExt: { [key: string]: string } = {
+    'application/vnd.android.package-archive': '.apk',
+    'application/octet-stream': '.apk', // Often APKs are served as octet-stream
+    'application/pdf': '.pdf',
+    'image/png': '.png',
+    'image/jpeg': '.jpg',
+    'image/jpg': '.jpg',
+    'image/gif': '.gif',
+    'image/webp': '.webp',
+    'audio/mpeg': '.mp3',
+    'audio/mp3': '.mp3',
+    'video/mp4': '.mp4',
+    'application/zip': '.zip',
+    'application/x-zip-compressed': '.zip',
+    'text/html': '.html',
+    'text/plain': '.txt',
+  };
+
+  const expectedExt = mimeToExt[mimeType?.toLowerCase() || ''];
+
+  // If the file is an APK or we have a solid expected extension
+  if (
+    mimeType?.toLowerCase() === 'application/vnd.android.package-archive' || 
+    (url && url.toLowerCase().includes('.apk'))
+  ) {
+    if (currentExt !== '.apk') {
+      if (['.bin', '.php', '.html', '.do', ''].includes(currentExt)) {
+        if (currentExt) {
+          filename = filename.slice(0, -currentExt.length);
+        }
+        filename = filename + '.apk';
+      }
+    }
+  } else if (expectedExt) {
+    if (currentExt !== expectedExt) {
+      if (['.bin', '.php', '.html', '.do', ''].includes(currentExt)) {
+        if (currentExt) {
+          filename = filename.slice(0, -currentExt.length);
+        }
+        filename = filename + expectedExt;
+      }
+    }
+  }
+
+  return filename;
+};
+

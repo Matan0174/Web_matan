@@ -28,7 +28,11 @@ import {
   extractDomainName,
   normalizeNavigationUrl,
   getDisplayDomain,
+  guessDownloadFilename,
 } from './src/utils/urlHelper';
+
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 
 import ToolbarHeader from './src/components/ToolbarHeader';
 import BlockedScreen from './src/components/BlockedScreen';
@@ -78,6 +82,15 @@ function BrowserApp() {
   const [hasLoadedFromStorage, setHasLoadedFromStorage] = useState(false);
 
   const viewRefs = useRef<{ [key: string]: View | null }>({});
+
+  // Back navigation debounce guard — prevents double-back bug
+  const backNavGuard = useRef(false);
+
+  // Track parent tab for each new tab (newTabId → parentTabId)
+  const tabParentMap = useRef<{ [key: string]: string }>({});
+
+  // Track scroll position per tab for blocked-URL scroll restoration
+  const scrollPositions = useRef<{ [tabId: string]: { x: number; y: number } }>({});
 
   const captureActiveTabScreenshot = async (tabId: string) => {
     try {
@@ -184,6 +197,8 @@ function BrowserApp() {
         if (ref) {
           ref.reload();
         }
+      } else if (data.type === 'scrollPosition') {
+        scrollPositions.current[tabId] = { x: data.x, y: data.y };
       }
     } catch (e) {
       // Ignore other events
@@ -274,6 +289,25 @@ function BrowserApp() {
           indicator.style.opacity = '0';
         }
         pulling = false;
+      }, { passive: true });
+    })();
+
+    // Scroll position tracking for blocked-URL scroll restoration
+    (function() {
+      if (window.__scrollTrackInjected) return;
+      window.__scrollTrackInjected = true;
+      var __scrollTimer = null;
+      window.addEventListener('scroll', function() {
+        if (__scrollTimer) clearTimeout(__scrollTimer);
+        __scrollTimer = setTimeout(function() {
+          try {
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'scrollPosition',
+              x: window.scrollX || window.pageXOffset || 0,
+              y: window.scrollY || window.pageYOffset || 0
+            }));
+          } catch(e) {}
+        }, 150);
       }, { passive: true });
     })();
     true;
@@ -404,6 +438,8 @@ function BrowserApp() {
       canGoForward: false,
     };
 
+    // Track parent so hardware back closes this tab and returns to parent
+    tabParentMap.current[newId] = activeTabId;
     captureActiveTabScreenshot(activeTabId);
     setTabs(prev => [...prev, newTab]);
     setActiveTabId(newId);
@@ -444,13 +480,18 @@ function BrowserApp() {
       if (!isInputFocused) {
         setUrlInput(activeTab.url);
       }
-      setIsCurrentUrlBlocked(isUrlProhibited(activeTab.url, blacklist, autoBlockEnabled));
+      // Skip block-check while a back navigation is in progress to prevent
+      // intermediate/redirect URLs from flipping isCurrentUrlBlocked and causing double-back
+      if (!backNavGuard.current) {
+        setIsCurrentUrlBlocked(isUrlProhibited(activeTab.url, blacklist, autoBlockEnabled));
+      }
     }
   }, [activeTabId, blacklist, autoBlockEnabled, activeTab.url, isInputFocused]);
 
   // Back button handling on Android
   useEffect(() => {
     const onBackPress = () => {
+      // 1. Dismiss open overlays / modals (unchanged priority order)
       if (isSettingsOpen) {
         setIsSettingsOpen(false);
         return true;
@@ -476,22 +517,47 @@ function BrowserApp() {
         setPinInput('');
         return true;
       }
+      if (isMenuOpen) {
+        setIsMenuOpen(false);
+        return true;
+      }
+
+      // 2. Blocked screen → go home
       if (isCurrentUrlBlocked) {
         handleGoHome();
         return true;
       }
-      // Check active tab's canGoBack
+
+      // 3. WebView has history → go back (with debounce guard to prevent double-back)
       const activeRef = webViewRefs.current[activeTabId];
       if (activeTab.canGoBack && activeRef) {
+        if (backNavGuard.current) return true; // Already processing a back nav
+        backNavGuard.current = true;
         activeRef.goBack();
+        setTimeout(() => { backNavGuard.current = false; }, 600);
         return true;
       }
+
+      // 4. No webview history — if tab has a parent, close this tab and return to parent
+      const parentTabId = tabParentMap.current[activeTabId];
+      if (parentTabId) {
+        const parentExists = tabs.some(t => t.id === parentTabId);
+        if (parentExists) {
+          delete tabParentMap.current[activeTabId];
+          const filtered = tabs.filter(t => t.id !== activeTabId);
+          setTabs(filtered);
+          setActiveTabId(parentTabId);
+          return true;
+        }
+      }
+
+      // 5. Nothing left to undo — let Android handle (exit app)
       return false;
     };
 
     const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
     return () => subscription.remove();
-  }, [activeTabId, tabs, isSettingsOpen, isDownloadsOpen, isHistoryOpen, isBookmarksOpen, isTabSwitcherOpen, isPinModalOpen, isCurrentUrlBlocked]);
+  }, [activeTabId, tabs, isSettingsOpen, isDownloadsOpen, isHistoryOpen, isBookmarksOpen, isTabSwitcherOpen, isPinModalOpen, isMenuOpen, isCurrentUrlBlocked]);
 
   // Save blacklisting details to AsyncStorage
   const saveBlacklist = async (newList: string[]) => {
@@ -600,6 +666,19 @@ function BrowserApp() {
       if (tabId === activeTabId) {
         setIsCurrentUrlBlocked(true);
       }
+      // Restore scroll position after cancelling navigation — on some Android WebView
+      // versions, returning false triggers a page reload that resets scroll to top
+      const savedScroll = scrollPositions.current[tabId];
+      if (savedScroll) {
+        const ref = webViewRefs.current[tabId];
+        if (ref) {
+          setTimeout(() => {
+            ref.injectJavaScript(
+              `window.scrollTo(${savedScroll.x}, ${savedScroll.y}); true;`
+            );
+          }, 100);
+        }
+      }
       return false;
     }
     return true;
@@ -646,6 +725,25 @@ function BrowserApp() {
         const ref = webViewRefs.current[tabId];
         if (ref) {
           ref.stopLoading();
+          // Attempt to go back to previous page and restore scroll position
+          const savedScroll = scrollPositions.current[tabId];
+          if (navState.canGoBack) {
+            ref.goBack();
+            if (savedScroll) {
+              setTimeout(() => {
+                ref.injectJavaScript(
+                  `window.scrollTo(${savedScroll.x}, ${savedScroll.y}); true;`
+                );
+              }, 400);
+            }
+          } else if (savedScroll) {
+            // Can't go back — just restore scroll on current page
+            setTimeout(() => {
+              ref.injectJavaScript(
+                `window.scrollTo(${savedScroll.x}, ${savedScroll.y}); true;`
+              );
+            }, 200);
+          }
         }
       } else {
         setIsCurrentUrlBlocked(false);
@@ -831,6 +929,8 @@ function BrowserApp() {
       canGoBack: false,
       canGoForward: false,
     };
+    // Track parent so hardware back closes this tab and returns to parent
+    tabParentMap.current[newId] = activeTabId;
     setTabs(prev => [...prev, newTab]);
     setActiveTabId(newId);
     setIsTabSwitcherOpen(false);
@@ -839,6 +939,11 @@ function BrowserApp() {
   };
 
   const handleCloseTab = (tabId: string) => {
+    // Clean up parent tracking for the closed tab
+    delete tabParentMap.current[tabId];
+    // Also clean up scroll position
+    delete scrollPositions.current[tabId];
+
     const filtered = tabs.filter(t => t.id !== tabId);
     if (filtered.length === 0) {
       const newId = Math.random().toString(36).substring(7);
@@ -848,15 +953,26 @@ function BrowserApp() {
       setActiveTabId(newId);
     } else {
       if (activeTabId === tabId) {
-        const closedIdx = tabs.findIndex(t => t.id === tabId);
-        const fallbackIdx = closedIdx > 0 ? closedIdx - 1 : 0;
-        setActiveTabId(filtered[fallbackIdx].id);
+        // Prefer the parent tab if it exists, otherwise fall back to adjacent tab
+        const parentId = tabParentMap.current[tabId];
+        const parentExists = parentId && filtered.some(t => t.id === parentId);
+        if (parentExists) {
+          setActiveTabId(parentId);
+        } else {
+          const closedIdx = tabs.findIndex(t => t.id === tabId);
+          const fallbackIdx = closedIdx > 0 ? closedIdx - 1 : 0;
+          setActiveTabId(filtered[fallbackIdx].id);
+        }
       }
       setTabs(filtered);
     }
   };
 
   const handleCloseAllTabs = () => {
+    // Reset all tracking maps
+    tabParentMap.current = {};
+    scrollPositions.current = {};
+
     const newId = Math.random().toString(36).substring(7);
     setTabs([
       { id: newId, url: DEFAULT_URL, title: 'Google', canGoBack: false, canGoForward: false }
@@ -866,44 +982,110 @@ function BrowserApp() {
   };
 
   // DOWNLOADS LOGIC
-  const handleDownloadStart = async (downloadUrl: string) => {
-    try {
-      let filename = 'downloaded_file';
-      try {
-        const parts = downloadUrl.split('/');
-        const lastPart = parts[parts.length - 1];
-        if (lastPart) {
-          filename = lastPart.split('?')[0].split('#')[0];
+  const handleDownloadStart = async (
+    downloadUrl: string,
+    userAgent?: string,
+    contentDisposition?: string,
+    mimeType?: string
+  ) => {
+    // Guess the correct filename and extension
+    const filename = guessDownloadFilename(downloadUrl, contentDisposition, mimeType);
+
+    Alert.alert(
+      'הורדת קובץ',
+      `האם ברצונך להוריד את הקובץ "${filename}"?`,
+      [
+        { text: 'ביטול', style: 'cancel' },
+        {
+          text: 'הורד',
+          onPress: async () => {
+            try {
+              // Target URI in the document directory
+              const fileUri = `${FileSystem.documentDirectory}${filename}`;
+              
+              // Set loading indicator
+              setIsLoading(true);
+              setLoadProgress(0);
+
+              // Download the file using expo-file-system
+              const downloadRes = await FileSystem.downloadAsync(downloadUrl, fileUri, {
+                headers: userAgent ? { 'User-Agent': userAgent } : {},
+              });
+
+              setIsLoading(false);
+              setLoadProgress(1);
+
+              if (downloadRes && downloadRes.status === 200) {
+                // Record to app's downloads list
+                const newItem: DownloadItem = {
+                  id: Math.random().toString(36).substring(7),
+                  filename,
+                  url: downloadUrl,
+                  timestamp: Date.now(),
+                };
+
+                const updated = [newItem, ...downloads];
+                setDownloads(updated);
+                await AsyncStorage.setItem('@browser_downloads', JSON.stringify(updated));
+
+                Alert.alert(
+                  'ההורדה הושלמה',
+                  `הקובץ "${filename}" ירד בהצלחה. האם ברצונך לפתוח או להתקין אותו?`,
+                  [
+                    { text: 'לא עכשיו', style: 'cancel' },
+                    {
+                      text: 'פתח / התקן',
+                      onPress: async () => {
+                        try {
+                          if (await Sharing.isAvailableAsync()) {
+                            await Sharing.shareAsync(downloadRes.uri, {
+                              mimeType: mimeType || 'application/octet-stream',
+                              dialogTitle: `פתח את ${filename}`,
+                            });
+                          } else {
+                            Alert.alert('שגיאה', 'שיתוף או פתיחת קבצים אינם נתמכים במכשיר זה.');
+                          }
+                        } catch (err) {
+                          console.error('Sharing error', err);
+                        }
+                      }
+                    }
+                  ]
+                );
+              } else {
+                throw new Error('Server returned non-200 status code');
+              }
+            } catch (e) {
+              setIsLoading(false);
+              setLoadProgress(1);
+              console.error('Download error:', e);
+              
+              // Fallback to system browser if native download fails
+              Alert.alert(
+                'ההורדה נכשלה',
+                'נכשלה הורדת הקובץ בתוך האפליקציה. האם לנסות להוריד דרך דפדפן המכשיר?',
+                [
+                  { text: 'ביטול', style: 'cancel' },
+                  {
+                    text: 'פתח בדפדפן',
+                    onPress: async () => {
+                      try {
+                        const canOpen = await Linking.canOpenURL(downloadUrl);
+                        if (canOpen) {
+                          await Linking.openURL(downloadUrl);
+                        }
+                      } catch (err) {
+                        Alert.alert('שגיאה', 'לא ניתן לפתוח את הקישור.');
+                      }
+                    }
+                  }
+                ]
+              );
+            }
+          }
         }
-      } catch (e) {
-        // use default
-      }
-
-      // Propose download trigger through platform system browser
-      const canOpen = await Linking.canOpenURL(downloadUrl);
-      if (canOpen) {
-        await Linking.openURL(downloadUrl);
-
-        // Record history
-        const newItem: DownloadItem = {
-          id: Math.random().toString(36).substring(7),
-          filename,
-          url: downloadUrl,
-          timestamp: Date.now(),
-        };
-
-        const updated = [newItem, ...downloads];
-        setDownloads(updated);
-        await AsyncStorage.setItem('@browser_downloads', JSON.stringify(updated));
-
-        Alert.alert('הורדה התחילה', `הורדת הקובץ "${filename}" התחילה דרך מנהל ההורדות של המכשיר.`);
-      } else {
-        Alert.alert('שגיאה', 'לא ניתן להוריד את הקובץ במכשיר זה.');
-      }
-    } catch (e) {
-      console.error('Download error', e);
-      Alert.alert('שגיאה', 'נכשלה התחלת ההורדה.');
-    }
+      ]
+    );
   };
 
   const handleClearDownloads = async () => {
@@ -1146,8 +1328,8 @@ function BrowserApp() {
                   onNavigationStateChange={(navState) => handleNavigationStateChange(navState, tab.id)}
                   onShouldStartLoadWithRequest={(request) => handleShouldStartLoadWithRequest(request, tab.id)}
                   onDownloadStart={(event: any) => {
-                    const downloadUrl = event.nativeEvent?.downloadUrl || event.nativeEvent?.url;
-                    if (downloadUrl) handleDownloadStart(downloadUrl);
+                    const { url, userAgent, contentDisposition, mimeType } = event.nativeEvent;
+                    if (url) handleDownloadStart(url, userAgent, contentDisposition, mimeType);
                   }}
                   onLoadStart={() => {
                     if (tab.id === activeTabId) {
