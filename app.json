@@ -20,6 +20,7 @@
       "package": "com.matan.chromebrowser",
       "softwareKeyboardLayoutMode": "pan",
       "icon": "./assets/icon.png",
+      "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#121212"

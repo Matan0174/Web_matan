@@ -11,12 +11,8 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../styles/globalStyles';
 
-export interface BookmarkItem {
-  id: string;
-  url: string;
-  title: string;
-  timestamp: number;
-}
+import { BookmarkItem } from '../types/browser';
+export type { BookmarkItem };
 
 interface BookmarksModalProps {
   visible: boolean;

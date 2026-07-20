@@ -13,14 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, TAB_SHADOW } from '../styles/globalStyles';
 
-interface BrowserTab {
-  id: string;
-  url: string;
-  title: string;
-  canGoBack: boolean;
-  canGoForward: boolean;
-  screenshotUri?: string;
-}
+import { BrowserTab } from '../types/browser';
 
 interface TabSwitcherModalProps {
   visible: boolean;

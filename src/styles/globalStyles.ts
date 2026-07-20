@@ -102,15 +102,3 @@ export const TAB_SHADOW = Platform.select({
     elevation: 3,
   },
 });
-
-export const BOTTOM_BAR_SHADOW = Platform.select({
-  ios: {
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: -1 },
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
-  },
-  android: {
-    elevation: 4,
-  },
-});

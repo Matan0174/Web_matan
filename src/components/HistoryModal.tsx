@@ -11,12 +11,8 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, DROPDOWN_SHADOW } from '../styles/globalStyles';
 
-export interface HistoryItem {
-  id: string;
-  url: string;
-  title: string;
-  timestamp: number;
-}
+import { HistoryItem } from '../types/browser';
+export type { HistoryItem };
 
 interface HistoryModalProps {
   visible: boolean;

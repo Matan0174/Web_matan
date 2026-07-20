@@ -74,16 +74,29 @@ export const normalizeNavigationUrl = (input: string): string => {
 
 /**
  * Helper to display only the host domain inside the address bar (unless focused).
+ * Decodes percent-encoded Unicode characters (Hebrew, Arabic, etc.) for readability.
  */
 export const getDisplayDomain = (url: string, isInputFocused: boolean, urlInput: string): string => {
-  if (isInputFocused) return urlInput;
+  if (isInputFocused) {
+    // Decode percent-encoded chars so the user sees readable Hebrew in the input
+    try {
+      return decodeURIComponent(urlInput);
+    } catch {
+      return urlInput;
+    }
+  }
   try {
     let domain = url;
     if (domain.includes('://')) {
       domain = domain.split('://')[1];
     }
     domain = domain.split('/')[0];
-    return domain;
+    // Decode IDN / percent-encoded Unicode domains for display
+    try {
+      return decodeURIComponent(domain);
+    } catch {
+      return domain;
+    }
   } catch {
     return url;
   }
