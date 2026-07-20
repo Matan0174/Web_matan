@@ -6,11 +6,16 @@ import {
   Linking,
   Share,
   StatusBar as RNStatusBar,
+  I18nManager,
 } from 'react-native';
 import { WebView, WebViewNavigation } from 'react-native-webview';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
+
+// Disable RTL to prevent layout from flipping backwards on Hebrew devices
+I18nManager.allowRTL(false);
+I18nManager.forceRTL(false);
 
 // Types & Utils
 import { BrowserTab } from './src/types/browser';
@@ -142,8 +147,7 @@ function BrowserApp() {
       setUrlInput(target);
       const activeRef = webViewRefs.current[activeTabId];
       if (activeRef) {
-        const safeUrl = encodeURI(target);
-        activeRef.injectJavaScript(`window.location.href = '${safeUrl}';`);
+        activeRef.injectJavaScript(`window.location.href = '${target}';`);
       }
     }
   };
@@ -312,8 +316,7 @@ function BrowserApp() {
     setUrlInput(DEFAULT_URL);
     const activeRef = webViewRefs.current[activeTabId];
     if (activeRef) {
-      const safeUrl = encodeURI(DEFAULT_URL);
-      activeRef.injectJavaScript(`window.location.href = '${safeUrl}';`);
+      activeRef.injectJavaScript(`window.location.href = '${DEFAULT_URL}';`);
     }
   };
 
@@ -387,6 +390,9 @@ function BrowserApp() {
         if (ref) ref.reload();
       } else if (data.type === 'scrollPosition') {
         scrollPositions.current[tabId] = { x: data.x, y: data.y };
+      } else if (data.type === 'forceNavigate') {
+        setTabs(prev => prev.map(t => (t.id === tabId ? { ...t, url: data.url } : t)));
+        if (tabId === activeTabId) setUrlInput(data.url);
       }
     } catch (e) {}
   };
@@ -394,7 +400,14 @@ function BrowserApp() {
   const handleShouldStartLoadWithRequest = (request: any, tabId: string): boolean => {
     const { url } = request;
 
-    if (!url.startsWith('http://') && !url.startsWith('https://') && !url.startsWith('about:')) {
+    if (
+      !url.startsWith('http://') &&
+      !url.startsWith('https://') &&
+      !url.startsWith('about:') &&
+      !url.startsWith('data:') &&
+      !url.startsWith('blob:') &&
+      !url.startsWith('intent:')
+    ) {
       Linking.canOpenURL(url).then(supported => {
         if (supported) Linking.openURL(url);
       });

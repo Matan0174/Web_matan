@@ -22,7 +22,7 @@ export function useSearchSuggestions(urlInput: string, isInputFocused: boolean, 
     suggestionsTimer.current = setTimeout(async () => {
       try {
         const response = await fetch(
-          `https://suggestqueries.google.com/complete/search?client=chrome&q=${encodeURIComponent(query)}`
+          `https://suggestqueries.google.com/complete/search?client=chrome&q=${encodeURIComponent(query)}&ie=UTF-8&oe=UTF-8`
         );
         const text = await response.text();
         const parsed = JSON.parse(text);

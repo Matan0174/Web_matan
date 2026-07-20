@@ -1,5 +1,5 @@
 import React from 'react';
-import { View } from 'react-native';
+import { View, Text, TouchableOpacity } from 'react-native';
 import { WebView, WebViewNavigation } from 'react-native-webview';
 import { BrowserTab } from '../types/browser';
 
@@ -32,6 +32,9 @@ export default function WebViewContainer({
   onLoadProgress,
   onLoadEnd,
 }: WebViewContainerProps) {
+  // Track last valid URL to escape the Android renderError bug
+  const lastValidUrls = React.useRef<{ [key: string]: string }>({});
+
   return (
     <View style={{ flex: 1 }}>
       {tabs.map(tab => (
@@ -50,7 +53,12 @@ export default function WebViewContainer({
             injectedJavaScript={injectedJavaScript}
             onMessage={(e) => onMessage(e, tab.id)}
             pullToRefreshEnabled={false}
-            onNavigationStateChange={(navState) => onNavigationStateChange(navState, tab.id)}
+            onNavigationStateChange={(navState) => {
+              if (!navState.loading && navState.url && !navState.url.startsWith('data:') && !navState.url.startsWith('about:')) {
+                lastValidUrls.current[tab.id] = navState.url;
+              }
+              onNavigationStateChange(navState, tab.id);
+            }}
             onShouldStartLoadWithRequest={(request) => onShouldStartLoadWithRequest(request, tab.id)}
             onDownloadStart={(event: any) => onDownloadStart(event)}
             onLoadStart={() => onLoadStart(tab.id)}
@@ -59,10 +67,11 @@ export default function WebViewContainer({
             domStorageEnabled={true}
             javaScriptEnabled={true}
             // ── Live Video & Stream Playback ──
+            originWhitelist={['*']}
             mediaPlaybackRequiresUserAction={false}
             allowsInlineMediaPlayback={true}
             allowsFullscreenVideo={true}
-            mixedContentMode="compatibility"
+            mixedContentMode="always"
             allowsBackForwardNavigationGestures={true}
             javaScriptCanOpenWindowsAutomatically={true}
             allowFileAccess={true}
@@ -72,6 +81,37 @@ export default function WebViewContainer({
             thirdPartyCookiesEnabled={true}
             setSupportMultipleWindows={false}
             userAgent="Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
+            // ── Error Handling ──
+            startInLoadingState={true}
+            renderError={(errorDomain, errorCode, errorDesc) => (
+              <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f8f9fa' }}>
+                <Text style={{ fontSize: 20, fontWeight: 'bold', color: '#dc3545', marginBottom: 10 }}>
+                  שגיאה בטעינת הדף
+                </Text>
+                <Text style={{ fontSize: 14, color: '#6c757d', textAlign: 'center', paddingHorizontal: 20, marginBottom: 20 }}>
+                  לא ניתן היה לטעון את הכתובת. ייתכן שיש בעיית רשת, או שהאתר אינו זמין כעת.
+                  {'\n\n'}{errorDesc}
+                </Text>
+                
+                <TouchableOpacity 
+                  onPress={() => {
+                    const ref = webViewRefs.current[tab.id];
+                    if (ref) {
+                       if (tab.canGoBack) {
+                         // Native goBack works even when JS is disabled on error pages
+                         ref.goBack();
+                       } else {
+                         // If no history exists, force load Google
+                         onMessage({ nativeEvent: { data: JSON.stringify({ type: 'forceNavigate', url: 'https://www.google.com' }) } }, tab.id);
+                       }
+                    }
+                  }}
+                  style={{ marginTop: 20, paddingVertical: 10, paddingHorizontal: 20, backgroundColor: '#007AFF', borderRadius: 8 }}
+                >
+                  <Text style={{ color: '#fff', fontSize: 16 }}>חזור לדף הקודם</Text>
+                </TouchableOpacity>
+              </View>
+            )}
             style={{ flex: 1 }}
           />
         </View>
