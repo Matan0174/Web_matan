@@ -9,6 +9,7 @@ interface WebViewContainerProps {
   webViewRefs: React.MutableRefObject<{ [key: string]: WebView | null }>;
   viewRefs: React.MutableRefObject<{ [key: string]: View | null }>;
   injectedJavaScript: string;
+  injectedJavaScriptBeforeContentLoaded: string;
   onMessage: (event: any, tabId: string) => void;
   onNavigationStateChange: (navState: WebViewNavigation, tabId: string) => void;
   onShouldStartLoadWithRequest: (request: any, tabId: string) => boolean;
@@ -24,6 +25,7 @@ export default function WebViewContainer({
   webViewRefs,
   viewRefs,
   injectedJavaScript,
+  injectedJavaScriptBeforeContentLoaded,
   onMessage,
   onNavigationStateChange,
   onShouldStartLoadWithRequest,
@@ -51,6 +53,7 @@ export default function WebViewContainer({
             ref={el => { webViewRefs.current[tab.id] = el; }}
             source={{ uri: tab.url }}
             injectedJavaScript={injectedJavaScript}
+            injectedJavaScriptBeforeContentLoaded={injectedJavaScriptBeforeContentLoaded}
             onMessage={(e) => onMessage(e, tab.id)}
             pullToRefreshEnabled={false}
             onNavigationStateChange={(navState) => {
@@ -76,11 +79,25 @@ export default function WebViewContainer({
             javaScriptCanOpenWindowsAutomatically={true}
             allowFileAccess={true}
             mediaCapturePermissionGrantType="grant"
-            // ── Fullscreen Video (Android) ──
-            androidLayerType="hardware"
+            cacheEnabled={true}
+            // ── Android Standalone Fixes ──
+            // Using "none" instead of "hardware" — hardware layer type causes
+            // rendering glitches and blank screens in Android release builds.
+            androidLayerType="none"
             thirdPartyCookiesEnabled={true}
             setSupportMultipleWindows={false}
             userAgent="Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
+            // ── WebView Process Recovery (Android) ──
+            // In standalone APK builds the WebView process can crash silently.
+            // This handler reloads the last valid URL so the user isn't stuck
+            // on a blank white screen.
+            onRenderProcessGone={(event) => {
+              const ref = webViewRefs.current[tab.id];
+              if (ref) {
+                const lastUrl = lastValidUrls.current[tab.id] || tab.url;
+                ref.reload();
+              }
+            }}
             // ── Error Handling ──
             startInLoadingState={true}
             renderError={(errorDomain, errorCode, errorDesc) => (

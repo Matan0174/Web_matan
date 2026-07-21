@@ -7,11 +7,23 @@
     "orientation": "default",
     "userInterfaceStyle": "light",
     "icon": "./assets/icon.png",
+    "newArchEnabled": false,
     "androidStatusBar": {
       "translucent": true,
       "barStyle": "dark-content",
       "backgroundColor": "#00000000"
     },
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableProguardInReleaseBuilds": true,
+            "extraProguardRules": "-keep class com.reactnativecommunity.webview.** { *; }\n-keep class android.webkit.** { *; }\n-keep class com.facebook.react.** { *; }\n-keepclassmembers class * {\n  @android.webkit.JavascriptInterface <methods>;\n}\n-dontwarn com.reactnativecommunity.webview.**"
+          }
+        }
+      ]
+    ],
     "ios": {
       "supportsTablet": true,
       "icon": "./assets/icon.png"

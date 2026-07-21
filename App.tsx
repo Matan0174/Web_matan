@@ -19,7 +19,7 @@ I18nManager.forceRTL(false);
 
 // Types & Utils
 import { BrowserTab } from './src/types/browser';
-import { INJECTED_JAVASCRIPT } from './src/utils/injectedScripts';
+import { INJECTED_JAVASCRIPT, INJECTED_JS_BEFORE_CONTENT_LOADED } from './src/utils/injectedScripts';
 import { COLORS } from './src/styles/globalStyles';
 import {
   isUrlProhibited,
@@ -371,7 +371,9 @@ function BrowserApp() {
         if (backNavGuard.current) return true;
         backNavGuard.current = true;
         activeRef.goBack();
-        setTimeout(() => { backNavGuard.current = false; }, 600);
+        // 800ms guard — release APK builds have slower navigation
+        // state updates than Expo Go, so 600ms was too short.
+        setTimeout(() => { backNavGuard.current = false; }, 800);
         return true;
       }
 
@@ -406,6 +408,31 @@ function BrowserApp() {
       } else if (data.type === 'forceNavigate') {
         setTabs(prev => prev.map(t => (t.id === tabId ? { ...t, url: data.url } : t)));
         if (tabId === activeTabId) setUrlInput(data.url);
+      } else if (data.type === 'navigationRequest' || data.type === 'windowOpen') {
+        // Backup URL interception from injected JS.
+        // In standalone APK release builds, onShouldStartLoadWithRequest
+        // may not fire for client-side navigations. This catches them
+        // at the JS level and blocks prohibited URLs.
+        if (data.url && isUrlProhibited(data.url, blacklist, autoBlockEnabled)) {
+          if (tabId === activeTabId) {
+            setIsCurrentUrlBlocked(true);
+          }
+          const ref = webViewRefs.current[tabId];
+          if (ref) {
+            ref.stopLoading();
+            if (data.type === 'windowOpen') {
+              // window.open was already intercepted client-side, nothing more to do
+            } else {
+              // For link clicks, go back to prevent the navigation
+              const savedScroll = scrollPositions.current[tabId];
+              if (savedScroll) {
+                setTimeout(() => {
+                  ref.injectJavaScript(`window.scrollTo(${savedScroll.x}, ${savedScroll.y}); true;`);
+                }, 100);
+              }
+            }
+          }
+        }
       }
     } catch (e) {}
   };
@@ -552,6 +579,7 @@ function BrowserApp() {
             webViewRefs={webViewRefs}
             viewRefs={viewRefs}
             injectedJavaScript={INJECTED_JAVASCRIPT}
+            injectedJavaScriptBeforeContentLoaded={INJECTED_JS_BEFORE_CONTENT_LOADED}
             onMessage={handleMessage}
             onNavigationStateChange={handleNavigationStateChange}
             onShouldStartLoadWithRequest={handleShouldStartLoadWithRequest}
