@@ -18,6 +18,7 @@
         "expo-build-properties",
         {
           "android": {
+            "usesCleartextTraffic": true,
             "enableProguardInReleaseBuilds": true,
             "extraProguardRules": "-keep class com.reactnativecommunity.webview.** { *; }\n-keep class android.webkit.** { *; }\n-keep class com.facebook.react.** { *; }\n-keepclassmembers class * {\n  @android.webkit.JavascriptInterface <methods>;\n}\n-dontwarn com.reactnativecommunity.webview.**"
           }
@@ -32,7 +33,6 @@
       "package": "com.matan.chromebrowser",
       "softwareKeyboardLayoutMode": "pan",
       "icon": "./assets/icon.png",
-      "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#121212"
