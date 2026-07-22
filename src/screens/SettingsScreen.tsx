@@ -42,7 +42,7 @@ export default function SettingsScreen({
           onPress={handleClose}
           style={styles.settingsBackBtn}
         >
-          <Ionicons name="arrow-back" size={24} color={COLORS.textDark} />
+          <Ionicons name="arrow-forward" size={24} color={COLORS.textDark} />
         </TouchableOpacity>
         <Text style={styles.settingsTitle}>הגדרות חסימת תכנים</Text>
         <View style={{ width: 24 }} />
@@ -128,7 +128,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.bgLight,
   },
   settingsHeader: {
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,

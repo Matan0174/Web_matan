@@ -36,7 +36,7 @@ export default function DownloadsModal({
             onPress={handleClose}
             style={styles.downloadsBackBtn}
           >
-            <Ionicons name="arrow-back" size={24} color={COLORS.textDark} />
+            <Ionicons name="arrow-forward" size={24} color={COLORS.textDark} />
           </TouchableOpacity>
           <Text style={styles.downloadsTitle}>הורדות</Text>
           <TouchableOpacity
@@ -91,7 +91,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.bgLight,
   },
   downloadsHeader: {
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,

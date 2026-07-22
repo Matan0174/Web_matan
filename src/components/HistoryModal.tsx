@@ -110,7 +110,7 @@ export default function HistoryModal({
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={handleClose} style={styles.backBtn}>
-            <Ionicons name="arrow-back" size={24} color={COLORS.textDark} />
+            <Ionicons name="arrow-forward" size={24} color={COLORS.textDark} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>היסטוריה</Text>
           {history.length > 0 ? (
@@ -149,7 +149,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.bgLight,
   },
   header: {
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,

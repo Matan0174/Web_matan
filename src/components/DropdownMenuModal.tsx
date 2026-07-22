@@ -72,7 +72,7 @@ export default function DropdownMenuModal({
               activeOpacity={0.6}
             >
               <Ionicons
-                name="chevron-forward"
+                name="chevron-back"
                 size={22}
                 color={COLORS.textDark}
               />
@@ -86,7 +86,7 @@ export default function DropdownMenuModal({
               activeOpacity={0.6}
             >
               <Ionicons
-                name="chevron-back"
+                name="chevron-forward"
                 size={22}
                 color={COLORS.textDark}
               />
@@ -234,7 +234,7 @@ const styles = StyleSheet.create({
     ...DROPDOWN_SHADOW,
   },
   menuItem: {
-    flexDirection: 'row-reverse',
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-end',
     paddingVertical: 13,

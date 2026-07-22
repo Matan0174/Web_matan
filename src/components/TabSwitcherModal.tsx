@@ -92,7 +92,7 @@ export default function TabSwitcherModal({
             onPress={handleClose}
             style={styles.switcherHeaderBtn}
           >
-            <Ionicons name="arrow-back" size={24} color={COLORS.textDark} />
+            <Ionicons name="arrow-forward" size={24} color={COLORS.textDark} />
           </TouchableOpacity>
           <Text style={styles.switcherTitle}>
             {tabs.length} {tabs.length === 1 ? 'כרטיסייה' : 'כרטיסיות'}
@@ -200,7 +200,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.surfaceGrey,
   },
   switcherHeader: {
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 12,
@@ -327,7 +327,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   switcherFooter: {
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 12,
