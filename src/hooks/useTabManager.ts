@@ -7,7 +7,7 @@ const DEFAULT_URL = 'https://www.google.com';
 
 export function useTabManager() {
   const [tabs, setTabs] = useState<BrowserTab[]>([
-    { id: '1', url: DEFAULT_URL, title: 'Google', canGoBack: false, canGoForward: false }
+    { id: '1', url: DEFAULT_URL, initialUrl: DEFAULT_URL, title: 'Google', canGoBack: false, canGoForward: false }
   ]);
   const [activeTabId, setActiveTabId] = useState('1');
   const [isTabSwitcherOpen, setIsTabSwitcherOpen] = useState(false);
@@ -48,6 +48,7 @@ export function useTabManager() {
     const newTab: BrowserTab = {
       id: newId,
       url: DEFAULT_URL,
+      initialUrl: DEFAULT_URL,
       title: 'Google',
       canGoBack: false,
       canGoForward: false,
@@ -66,7 +67,7 @@ export function useTabManager() {
     if (filtered.length === 0) {
       const newId = Math.random().toString(36).substring(7);
       setTabs([
-        { id: newId, url: DEFAULT_URL, title: 'Google', canGoBack: false, canGoForward: false }
+        { id: newId, url: DEFAULT_URL, initialUrl: DEFAULT_URL, title: 'Google', canGoBack: false, canGoForward: false }
       ]);
       setActiveTabId(newId);
     } else {
@@ -89,7 +90,7 @@ export function useTabManager() {
     tabParentMap.current = {};
     const newId = Math.random().toString(36).substring(7);
     setTabs([
-      { id: newId, url: DEFAULT_URL, title: 'Google', canGoBack: false, canGoForward: false }
+      { id: newId, url: DEFAULT_URL, initialUrl: DEFAULT_URL, title: 'Google', canGoBack: false, canGoForward: false }
     ]);
     setActiveTabId(newId);
     setIsTabSwitcherOpen(false);
@@ -98,6 +99,7 @@ export function useTabManager() {
   const activeTab = tabs.find(t => t.id === activeTabId) || tabs[0] || {
     id: '1',
     url: DEFAULT_URL,
+    initialUrl: DEFAULT_URL,
     title: 'Google',
     canGoBack: false,
     canGoForward: false,

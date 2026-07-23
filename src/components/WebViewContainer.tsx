@@ -51,7 +51,7 @@ export default function WebViewContainer({
         >
           <WebView
             ref={el => { webViewRefs.current[tab.id] = el; }}
-            source={{ uri: tab.url }}
+            source={{ uri: tab.initialUrl }}
             injectedJavaScript={injectedJavaScript}
             injectedJavaScriptBeforeContentLoaded={injectedJavaScriptBeforeContentLoaded}
             onMessage={(e) => onMessage(e, tab.id)}

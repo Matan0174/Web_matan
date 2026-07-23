@@ -204,7 +204,12 @@ function BrowserApp() {
         if (savedTabs) {
           const parsedTabs = JSON.parse(savedTabs);
           if (parsedTabs && parsedTabs.length > 0) {
-            setTabs(parsedTabs);
+            // Migrate old saved tabs that lack the initialUrl field
+            const migratedTabs = parsedTabs.map((t: any) => ({
+              ...t,
+              initialUrl: t.initialUrl || t.url,
+            }));
+            setTabs(migratedTabs);
             if (savedActiveTabId) {
               setActiveTabId(savedActiveTabId);
               const active = parsedTabs.find((t: any) => t.id === savedActiveTabId) || parsedTabs[0];
@@ -266,6 +271,7 @@ function BrowserApp() {
     const newTab: BrowserTab = {
       id: newId,
       url: normalizedUrl,
+      initialUrl: normalizedUrl,
       title: getDisplayDomain(normalizedUrl, false, ''),
       canGoBack: false,
       canGoForward: false,
@@ -303,11 +309,15 @@ function BrowserApp() {
       if (!isInputFocused) {
         setUrlInput(activeTab.url);
       }
-      if (!backNavGuard.current) {
-        setIsCurrentUrlBlocked(isUrlProhibited(activeTab.url, blacklist, autoBlockEnabled));
+      // Skip re-evaluating block status while the settings screen is open —
+      // changing blacklist / autoBlockEnabled from settings would trigger
+      // cascading state updates that freeze the UI.
+      if (!backNavGuard.current && !isSettingsOpen) {
+        const blocked = isUrlProhibited(activeTab.url, blacklist, autoBlockEnabled);
+        setIsCurrentUrlBlocked(blocked);
       }
     }
-  }, [activeTabId, blacklist, autoBlockEnabled, activeTab.url, isInputFocused]);
+  }, [activeTabId, blacklist, autoBlockEnabled, activeTab.url, isInputFocused, isSettingsOpen]);
 
   const handleGoHome = () => {
     if (isCurrentUrlBlocked) {
