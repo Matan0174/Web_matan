@@ -230,9 +230,21 @@ export const INJECTED_JS_BEFORE_CONTENT_LOADED = `
   (function() {
     // Override window.open so popups are caught by React Native
     // instead of being silently swallowed in standalone builds.
+    // Rate-limit: max 3 calls within 2 seconds to prevent loops.
+    var __woTimestamps = [];
+    var __WO_LIMIT = 3;
+    var __WO_WINDOW = 2000;
+
     var originalOpen = window.open;
     window.open = function(url, target, features) {
       if (url) {
+        var now = Date.now();
+        __woTimestamps = __woTimestamps.filter(function(ts) { return now - ts < __WO_WINDOW; });
+        if (__woTimestamps.length >= __WO_LIMIT) {
+          console.warn('[WebMatan] window.open rate-limited — blocked:', url);
+          return null;
+        }
+        __woTimestamps.push(now);
         try {
           window.ReactNativeWebView.postMessage(JSON.stringify({
             type: 'windowOpen',

@@ -87,6 +87,8 @@ function BrowserApp() {
     handleAddNewTab,
     handleCloseTab,
     handleCloseAllTabs,
+    shouldBlockTabCreation,
+    recordTabCreation,
   } = useTabManager();
 
   const {
@@ -245,7 +247,12 @@ function BrowserApp() {
     saveTabsState();
   }, [tabs, activeTabId, hasLoadedFromStorage]);
 
-  // Deep linking
+  // ── Deep linking ──
+  // We use a ref so the handler always sees the latest state without
+  // causing the useEffect to re-run (which was the root cause of the
+  // infinite-tab-creation loop).
+  const initialUrlHandled = useRef(false);
+
   const handleDeepLink = useCallback((url: string) => {
     if (!url) return;
     let cleanUrl = url;
@@ -266,6 +273,9 @@ function BrowserApp() {
 
     const normalizedUrl = normalizeNavigationUrl(cleanUrl);
     const isBlocked = isUrlProhibited(normalizedUrl, blacklist, autoBlockEnabled);
+
+    // ── Guard: prevent tab-creation loops ──
+    if (shouldBlockTabCreation(tabs.length)) return;
     
     const newId = Math.random().toString(36).substring(7);
     const newTab: BrowserTab = {
@@ -278,6 +288,7 @@ function BrowserApp() {
     };
 
     tabParentMap.current[newId] = activeTabId;
+    recordTabCreation();
     setTabs(prev => [...prev, newTab]);
     setActiveTabId(newId);
     setIsSettingsOpen(false);
@@ -289,19 +300,30 @@ function BrowserApp() {
     if (!isBlocked) {
       setUrlInput(normalizedUrl);
     }
-  }, [blacklist, autoBlockEnabled, activeTabId, setTabs, setActiveTabId, setIsSettingsOpen, setIsDownloadsOpen, setIsTabSwitcherOpen, setIsPinModalOpen, setIsCurrentUrlBlocked, tabParentMap]);
+  }, [blacklist, autoBlockEnabled, activeTabId, tabs.length, shouldBlockTabCreation, recordTabCreation, setTabs, setActiveTabId, setIsSettingsOpen, setIsDownloadsOpen, setIsTabSwitcherOpen, setIsPinModalOpen, setIsCurrentUrlBlocked, tabParentMap]);
 
+  // Keep a stable ref to the latest handleDeepLink so the useEffect
+  // below never re-subscribes (and never re-calls getInitialURL).
+  const deepLinkRef = useRef(handleDeepLink);
+  useEffect(() => { deepLinkRef.current = handleDeepLink; }, [handleDeepLink]);
+
+  // This effect runs ONCE on mount — no dependency on handleDeepLink.
   useEffect(() => {
+    // Cold-start: process the URL the app was opened with (once only)
     Linking.getInitialURL().then(url => {
-      if (url) handleDeepLink(url);
+      if (url && !initialUrlHandled.current) {
+        initialUrlHandled.current = true;
+        deepLinkRef.current(url);
+      }
     });
 
+    // Warm-start: the app is already running and receives a new URL
     const subscription = Linking.addEventListener('url', (event) => {
-      if (event.url) handleDeepLink(event.url);
+      if (event.url) deepLinkRef.current(event.url);
     });
 
     return () => subscription.remove();
-  }, [handleDeepLink]);
+  }, []);
 
   // Sync address bar input and block status
   useEffect(() => {

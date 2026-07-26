@@ -76,7 +76,7 @@ export default function WebViewContainer({
             allowsFullscreenVideo={true}
             mixedContentMode="always"
             allowsBackForwardNavigationGestures={true}
-            javaScriptCanOpenWindowsAutomatically={true}
+            javaScriptCanOpenWindowsAutomatically={false}
             allowFileAccess={true}
             mediaCapturePermissionGrantType="grant"
             cacheEnabled={true}

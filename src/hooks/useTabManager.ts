@@ -5,6 +5,17 @@ import { BrowserTab } from '../types/browser';
 
 const DEFAULT_URL = 'https://www.google.com';
 
+/** Hard cap — refuse to create more tabs than this. */
+const MAX_TABS = 50;
+
+/**
+ * Rate-limit: if more than RATE_LIMIT_COUNT tabs are created within
+ * RATE_LIMIT_WINDOW_MS, block further creation until the window resets.
+ * This catches runaway loops from window.open / deep-link spam.
+ */
+const RATE_LIMIT_COUNT = 3;
+const RATE_LIMIT_WINDOW_MS = 2000;
+
 export function useTabManager() {
   const [tabs, setTabs] = useState<BrowserTab[]>([
     { id: '1', url: DEFAULT_URL, initialUrl: DEFAULT_URL, title: 'Google', canGoBack: false, canGoForward: false }
@@ -17,6 +28,9 @@ export function useTabManager() {
 
   // Track parent tab for each new tab (newTabId → parentTabId)
   const tabParentMap = useRef<{ [key: string]: string }>({});
+
+  // Rate-limit tracking — timestamps of recent tab creations
+  const recentTabCreations = useRef<number[]>([]);
 
   const captureActiveTabScreenshot = async (tabId: string) => {
     try {
@@ -41,8 +55,37 @@ export function useTabManager() {
     setIsTabSwitcherOpen(true);
   };
 
+  /**
+   * Returns true if we should block tab creation due to rate-limiting or
+   * hitting the hard cap.  `isUserInitiated` bypasses the rate-limit
+   * (the user tapped "+" manually) but still enforces the hard cap.
+   */
+  const shouldBlockTabCreation = (currentTabCount: number, isUserInitiated = false): boolean => {
+    if (currentTabCount >= MAX_TABS) return true;
+    if (isUserInitiated) return false;
+
+    const now = Date.now();
+    // Prune timestamps outside the window
+    recentTabCreations.current = recentTabCreations.current.filter(
+      ts => now - ts < RATE_LIMIT_WINDOW_MS
+    );
+    if (recentTabCreations.current.length >= RATE_LIMIT_COUNT) {
+      console.warn('[TabManager] Tab creation rate-limited — too many tabs opened in a short window');
+      return true;
+    }
+    return false;
+  };
+
+  const recordTabCreation = () => {
+    recentTabCreations.current.push(Date.now());
+  };
+
   const handleAddNewTab = async (closeMenu?: () => void) => {
     if (closeMenu) closeMenu();
+
+    // User-initiated: bypass rate-limit but still enforce hard cap
+    if (shouldBlockTabCreation(tabs.length, true)) return;
+
     await captureActiveTabScreenshot(activeTabId);
     const newId = Math.random().toString(36).substring(7);
     const newTab: BrowserTab = {
@@ -55,6 +98,7 @@ export function useTabManager() {
     };
     // Track parent so hardware back closes this tab and returns to parent
     tabParentMap.current[newId] = activeTabId;
+    recordTabCreation();
     setTabs(prev => [...prev, newTab]);
     setActiveTabId(newId);
     setIsTabSwitcherOpen(false);
@@ -122,5 +166,7 @@ export function useTabManager() {
     handleAddNewTab,
     handleCloseTab,
     handleCloseAllTabs,
+    shouldBlockTabCreation,
+    recordTabCreation,
   };
 }
