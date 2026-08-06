@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   View,
@@ -9,7 +9,6 @@ import {
   I18nManager,
 } from 'react-native';
 import { WebView, WebViewNavigation } from 'react-native-webview';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -26,6 +25,8 @@ import {
   normalizeNavigationUrl,
   getDisplayDomain,
 } from './src/utils/urlHelper';
+import { injectNavigate, injectScrollRestore } from './src/utils/webviewNav';
+import { STORAGE_KEYS, getJSON, getString, setJSON, setString } from './src/utils/storage';
 
 // Hooks
 import { useTabManager } from './src/hooks/useTabManager';
@@ -33,6 +34,7 @@ import { useContentFilter } from './src/hooks/useContentFilter';
 import { useDownloadManager } from './src/hooks/useDownloadManager';
 import { useHistoryAndBookmarks } from './src/hooks/useHistoryAndBookmarks';
 import { useSearchSuggestions } from './src/hooks/useSearchSuggestions';
+import { useDeepLinking } from './src/hooks/useDeepLinking';
 
 // Components
 import ToolbarHeader from './src/components/ToolbarHeader';
@@ -83,6 +85,7 @@ function BrowserApp() {
     setHasLoadedFromStorage,
     viewRefs,
     tabParentMap,
+    warmTabIds,
     handleOpenTabSwitcher,
     handleAddNewTab,
     handleCloseTab,
@@ -147,10 +150,7 @@ function BrowserApp() {
       // and let handleNavigationStateChange update tab.url after page loads.
       setIsCurrentUrlBlocked(false);
       setUrlInput(target);
-      const activeRef = webViewRefs.current[activeTabId];
-      if (activeRef) {
-        activeRef.injectJavaScript(`window.location.href = '${target}';`);
-      }
+      injectNavigate(webViewRefs.current[activeTabId], target);
     }
   };
 
@@ -183,43 +183,35 @@ function BrowserApp() {
   useEffect(() => {
     const loadStorage = async () => {
       try {
-        const pin = await AsyncStorage.getItem('@browser_pin');
+        const pin = await getString(STORAGE_KEYS.pin);
         if (pin) setSavedPin(pin);
 
-        const list = await AsyncStorage.getItem('@browser_blacklist');
-        if (list) setBlacklist(JSON.parse(list));
+        setBlacklist(await getJSON<string[]>(STORAGE_KEYS.blacklist, []));
 
-        const autoBlock = await AsyncStorage.getItem('@browser_autoblock');
+        const autoBlock = await getString(STORAGE_KEYS.autoBlock);
         if (autoBlock !== null) setAutoBlockEnabled(autoBlock === 'true');
 
-        const savedDls = await AsyncStorage.getItem('@browser_downloads');
-        if (savedDls) setDownloads(JSON.parse(savedDls));
+        setDownloads(await getJSON(STORAGE_KEYS.downloads, [] as typeof downloads));
+        setHistory(await getJSON(STORAGE_KEYS.history, [] as typeof history));
+        setBookmarks(await getJSON(STORAGE_KEYS.bookmarks, [] as typeof bookmarks));
 
-        const savedHistory = await AsyncStorage.getItem('@browser_history');
-        if (savedHistory) setHistory(JSON.parse(savedHistory));
-
-        const savedBookmarks = await AsyncStorage.getItem('@browser_bookmarks');
-        if (savedBookmarks) setBookmarks(JSON.parse(savedBookmarks));
-
-        const savedTabs = await AsyncStorage.getItem('@browser_tabs');
-        const savedActiveTabId = await AsyncStorage.getItem('@browser_active_tab_id');
-        if (savedTabs) {
-          const parsedTabs = JSON.parse(savedTabs);
-          if (parsedTabs && parsedTabs.length > 0) {
-            // Migrate old saved tabs that lack the initialUrl field
-            const migratedTabs = parsedTabs.map((t: any) => ({
-              ...t,
-              initialUrl: t.initialUrl || t.url,
-            }));
-            setTabs(migratedTabs);
-            if (savedActiveTabId) {
-              setActiveTabId(savedActiveTabId);
-              const active = parsedTabs.find((t: any) => t.id === savedActiveTabId) || parsedTabs[0];
-              setUrlInput(active.url);
-            } else {
-              setActiveTabId(parsedTabs[0].id);
-              setUrlInput(parsedTabs[0].url);
-            }
+        const parsedTabs = await getJSON<any[] | null>(STORAGE_KEYS.tabs, null);
+        const savedActiveTabId = await getString(STORAGE_KEYS.activeTabId);
+        if (parsedTabs && parsedTabs.length > 0) {
+          // Migrate old saved tabs that lack the initialUrl / lastActiveAt fields
+          const migratedTabs: BrowserTab[] = parsedTabs.map((t: any) => ({
+            ...t,
+            initialUrl: t.initialUrl || t.url,
+            lastActiveAt: t.lastActiveAt || Date.now(),
+          }));
+          setTabs(migratedTabs);
+          if (savedActiveTabId) {
+            setActiveTabId(savedActiveTabId);
+            const active = parsedTabs.find((t: any) => t.id === savedActiveTabId) || parsedTabs[0];
+            setUrlInput(active.url);
+          } else {
+            setActiveTabId(parsedTabs[0].id);
+            setUrlInput(parsedTabs[0].url);
           }
         }
       } catch (e) {
@@ -234,96 +226,27 @@ function BrowserApp() {
   // Save tabs and active tab ID whenever they change
   useEffect(() => {
     if (!hasLoadedFromStorage) return;
-
-    const saveTabsState = async () => {
-      try {
-        await AsyncStorage.setItem('@browser_tabs', JSON.stringify(tabs));
-        await AsyncStorage.setItem('@browser_active_tab_id', activeTabId);
-      } catch (e) {
-        console.error('Failed to save tabs state to storage', e);
-      }
-    };
-
-    saveTabsState();
+    setJSON(STORAGE_KEYS.tabs, tabs);
+    setString(STORAGE_KEYS.activeTabId, activeTabId);
   }, [tabs, activeTabId, hasLoadedFromStorage]);
 
-  // ── Deep linking ──
-  // We use a ref so the handler always sees the latest state without
-  // causing the useEffect to re-run (which was the root cause of the
-  // infinite-tab-creation loop).
-  const initialUrlHandled = useRef(false);
-
-  const handleDeepLink = useCallback((url: string) => {
-    if (!url) return;
-    let cleanUrl = url;
-    const httpsIndex = cleanUrl.toLowerCase().indexOf('https://');
-    const httpIndex = cleanUrl.toLowerCase().indexOf('http://');
-    
-    if (httpsIndex !== -1) {
-      cleanUrl = cleanUrl.substring(httpsIndex);
-    } else if (httpIndex !== -1) {
-      cleanUrl = cleanUrl.substring(httpIndex);
-    } else {
-      if (url.startsWith('web-matan://')) {
-        cleanUrl = url.replace('web-matan://', '');
-      } else {
-        return;
-      }
-    }
-
-    const normalizedUrl = normalizeNavigationUrl(cleanUrl);
-    const isBlocked = isUrlProhibited(normalizedUrl, blacklist, autoBlockEnabled);
-
-    // ── Guard: prevent tab-creation loops ──
-    if (shouldBlockTabCreation(tabs.length)) return;
-    
-    const newId = Math.random().toString(36).substring(7);
-    const newTab: BrowserTab = {
-      id: newId,
-      url: normalizedUrl,
-      initialUrl: normalizedUrl,
-      title: getDisplayDomain(normalizedUrl, false, ''),
-      canGoBack: false,
-      canGoForward: false,
-    };
-
-    tabParentMap.current[newId] = activeTabId;
-    recordTabCreation();
-    setTabs(prev => [...prev, newTab]);
-    setActiveTabId(newId);
-    setIsSettingsOpen(false);
-    setIsDownloadsOpen(false);
-    setIsTabSwitcherOpen(false);
-    setIsPinModalOpen(false);
-    setIsCurrentUrlBlocked(isBlocked);
-    
-    if (!isBlocked) {
-      setUrlInput(normalizedUrl);
-    }
-  }, [blacklist, autoBlockEnabled, activeTabId, tabs.length, shouldBlockTabCreation, recordTabCreation, setTabs, setActiveTabId, setIsSettingsOpen, setIsDownloadsOpen, setIsTabSwitcherOpen, setIsPinModalOpen, setIsCurrentUrlBlocked, tabParentMap]);
-
-  // Keep a stable ref to the latest handleDeepLink so the useEffect
-  // below never re-subscribes (and never re-calls getInitialURL).
-  const deepLinkRef = useRef(handleDeepLink);
-  useEffect(() => { deepLinkRef.current = handleDeepLink; }, [handleDeepLink]);
-
-  // This effect runs ONCE on mount — no dependency on handleDeepLink.
-  useEffect(() => {
-    // Cold-start: process the URL the app was opened with (once only)
-    Linking.getInitialURL().then(url => {
-      if (url && !initialUrlHandled.current) {
-        initialUrlHandled.current = true;
-        deepLinkRef.current(url);
-      }
-    });
-
-    // Warm-start: the app is already running and receives a new URL
-    const subscription = Linking.addEventListener('url', (event) => {
-      if (event.url) deepLinkRef.current(event.url);
-    });
-
-    return () => subscription.remove();
-  }, []);
+  useDeepLinking({
+    tabs,
+    activeTabId,
+    blacklist,
+    autoBlockEnabled,
+    shouldBlockTabCreation,
+    recordTabCreation,
+    tabParentMap,
+    setTabs,
+    setActiveTabId,
+    setIsSettingsOpen,
+    setIsDownloadsOpen,
+    setIsTabSwitcherOpen,
+    setIsPinModalOpen,
+    setIsCurrentUrlBlocked,
+    setUrlInput,
+  });
 
   // Sync address bar input and block status
   useEffect(() => {
@@ -358,10 +281,7 @@ function BrowserApp() {
       // Normal Home button clicked from Toolbar
       setIsCurrentUrlBlocked(false);
       setUrlInput(DEFAULT_URL);
-      const activeRef = webViewRefs.current[activeTabId];
-      if (activeRef) {
-        activeRef.injectJavaScript(`window.location.href = '${DEFAULT_URL}';`);
-      }
+      injectNavigate(webViewRefs.current[activeTabId], DEFAULT_URL);
     }
   };
 
@@ -456,12 +376,7 @@ function BrowserApp() {
               // window.open was already intercepted client-side, nothing more to do
             } else {
               // For link clicks, go back to prevent the navigation
-              const savedScroll = scrollPositions.current[tabId];
-              if (savedScroll) {
-                setTimeout(() => {
-                  ref.injectJavaScript(`window.scrollTo(${savedScroll.x}, ${savedScroll.y}); true;`);
-                }, 100);
-              }
+              injectScrollRestore(ref, scrollPositions.current[tabId], 100);
             }
           }
         }
@@ -490,15 +405,7 @@ function BrowserApp() {
       if (tabId === activeTabId) {
         setIsCurrentUrlBlocked(true);
       }
-      const savedScroll = scrollPositions.current[tabId];
-      if (savedScroll) {
-        const ref = webViewRefs.current[tabId];
-        if (ref) {
-          setTimeout(() => {
-            ref.injectJavaScript(`window.scrollTo(${savedScroll.x}, ${savedScroll.y}); true;`);
-          }, 100);
-        }
-      }
+      injectScrollRestore(webViewRefs.current[tabId], scrollPositions.current[tabId], 100);
       return false;
     }
     return true;
@@ -535,15 +442,9 @@ function BrowserApp() {
           const savedScroll = scrollPositions.current[tabId];
           if (navState.canGoBack) {
             ref.goBack();
-            if (savedScroll) {
-              setTimeout(() => {
-                ref.injectJavaScript(`window.scrollTo(${savedScroll.x}, ${savedScroll.y}); true;`);
-              }, 400);
-            }
-          } else if (savedScroll) {
-            setTimeout(() => {
-              ref.injectJavaScript(`window.scrollTo(${savedScroll.x}, ${savedScroll.y}); true;`);
-            }, 200);
+            injectScrollRestore(ref, savedScroll, 400);
+          } else {
+            injectScrollRestore(ref, savedScroll, 200);
           }
         }
       } else {
@@ -608,6 +509,7 @@ function BrowserApp() {
           <WebViewContainer
             tabs={tabs}
             activeTabId={activeTabId}
+            warmTabIds={warmTabIds}
             webViewRefs={webViewRefs}
             viewRefs={viewRefs}
             injectedJavaScript={INJECTED_JAVASCRIPT}

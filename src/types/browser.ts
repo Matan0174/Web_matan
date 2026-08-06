@@ -8,6 +8,8 @@ export interface BrowserTab {
   canGoBack: boolean;
   canGoForward: boolean;
   screenshotUri?: string;
+  /** Timestamp this tab was last the active tab — drives which tabs stay "warm" (mounted). */
+  lastActiveAt?: number;
 }
 
 export interface DownloadItem {

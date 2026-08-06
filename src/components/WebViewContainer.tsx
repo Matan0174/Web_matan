@@ -1,11 +1,29 @@
 import React from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
 import { WebView, WebViewNavigation } from 'react-native-webview';
+import { Ionicons } from '@expo/vector-icons';
 import { BrowserTab } from '../types/browser';
+
+/** Placeholder shown for a tab whose WebView has been suspended to save memory. */
+function SuspendedTabPlaceholder({ title }: { title: string }) {
+  return (
+    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f8f9fa', padding: 24 }}>
+      <Ionicons name="pause-circle-outline" size={40} color="#9aa0a6" />
+      <Text numberOfLines={1} style={{ marginTop: 12, fontSize: 15, fontWeight: '600', color: '#3c4043' }}>
+        {title}
+      </Text>
+      <Text style={{ marginTop: 4, fontSize: 12, color: '#9aa0a6', textAlign: 'center' }}>
+        הכרטיסייה הושהתה לחיסכון בזיכרון — היא תיטען מחדש עם המעבר אליה
+      </Text>
+    </View>
+  );
+}
 
 interface WebViewContainerProps {
   tabs: BrowserTab[];
   activeTabId: string;
+  /** Ids of tabs allowed to keep a mounted WebView; the rest render a lightweight placeholder. */
+  warmTabIds: Set<string>;
   webViewRefs: React.MutableRefObject<{ [key: string]: WebView | null }>;
   viewRefs: React.MutableRefObject<{ [key: string]: View | null }>;
   injectedJavaScript: string;
@@ -22,6 +40,7 @@ interface WebViewContainerProps {
 export default function WebViewContainer({
   tabs,
   activeTabId,
+  warmTabIds,
   webViewRefs,
   viewRefs,
   injectedJavaScript,
@@ -49,6 +68,9 @@ export default function WebViewContainer({
             flex: 1,
           }}
         >
+          {!warmTabIds.has(tab.id) ? (
+            <SuspendedTabPlaceholder title={tab.title} />
+          ) : (
           <WebView
             ref={el => { webViewRefs.current[tab.id] = el; }}
             source={{ uri: tab.initialUrl }}
@@ -131,6 +153,7 @@ export default function WebViewContainer({
             )}
             style={{ flex: 1 }}
           />
+          )}
         </View>
       ))}
     </View>

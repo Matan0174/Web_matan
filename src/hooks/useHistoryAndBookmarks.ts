@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { HistoryItem, BookmarkItem } from '../types/browser';
+import { STORAGE_KEYS, setJSON, removeItem } from '../utils/storage';
 
 export function useHistoryAndBookmarks(activeTabUrl: string, activeTabTitle: string, navigateTo: (url: string) => void) {
   const [history, setHistory] = useState<HistoryItem[]>([]);
@@ -12,7 +12,7 @@ export function useHistoryAndBookmarks(activeTabUrl: string, activeTabTitle: str
   // History helpers
   const handleClearHistory = async () => {
     setHistory([]);
-    await AsyncStorage.removeItem('@browser_history');
+    await removeItem(STORAGE_KEYS.history);
   };
 
   const handleHistoryNavigate = (url: string) => {
@@ -30,7 +30,7 @@ export function useHistoryAndBookmarks(activeTabUrl: string, activeTabTitle: str
         timestamp: Date.now(),
       };
       const updated = [newItem, ...prev].slice(0, 500);
-      AsyncStorage.setItem('@browser_history', JSON.stringify(updated)).catch(() => {});
+      setJSON(STORAGE_KEYS.history, updated);
       return updated;
     });
   };
@@ -43,7 +43,7 @@ export function useHistoryAndBookmarks(activeTabUrl: string, activeTabTitle: str
     if (isCurrentPageBookmarked) {
       const updated = bookmarks.filter(b => b.url !== activeTabUrl);
       setBookmarks(updated);
-      await AsyncStorage.setItem('@browser_bookmarks', JSON.stringify(updated));
+      await setJSON(STORAGE_KEYS.bookmarks, updated);
     } else {
       const newBookmark: BookmarkItem = {
         id: Math.random().toString(36).substring(7),
@@ -53,14 +53,14 @@ export function useHistoryAndBookmarks(activeTabUrl: string, activeTabTitle: str
       };
       const updated = [newBookmark, ...bookmarks];
       setBookmarks(updated);
-      await AsyncStorage.setItem('@browser_bookmarks', JSON.stringify(updated));
+      await setJSON(STORAGE_KEYS.bookmarks, updated);
     }
   };
 
   const handleRemoveBookmark = async (id: string) => {
     const updated = bookmarks.filter(b => b.id !== id);
     setBookmarks(updated);
-    await AsyncStorage.setItem('@browser_bookmarks', JSON.stringify(updated));
+    await setJSON(STORAGE_KEYS.bookmarks, updated);
   };
 
   const handleBookmarkNavigate = (url: string) => {

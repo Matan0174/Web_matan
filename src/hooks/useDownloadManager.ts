@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { Alert, Linking } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { DownloadItem } from '../types/browser';
 import { guessDownloadFilename } from '../utils/urlHelper';
+import { STORAGE_KEYS, setJSON, removeItem } from '../utils/storage';
 
 export function useDownloadManager(
   setIsLoading: (loading: boolean) => void,
@@ -57,7 +57,7 @@ export function useDownloadManager(
 
                 const updated = [newItem, ...downloads];
                 setDownloads(updated);
-                await AsyncStorage.setItem('@browser_downloads', JSON.stringify(updated));
+                await setJSON(STORAGE_KEYS.downloads, updated);
 
                 Alert.alert(
                   'ההורדה הושלמה',
@@ -120,13 +120,9 @@ export function useDownloadManager(
   };
 
   const handleClearDownloads = async () => {
-    try {
-      setDownloads([]);
-      await AsyncStorage.removeItem('@browser_downloads');
-      Alert.alert('הצלחה', 'היסטוריית ההורדות נמחקה.');
-    } catch (e) {
-      console.error('Failed to clear downloads', e);
-    }
+    setDownloads([]);
+    await removeItem(STORAGE_KEYS.downloads);
+    Alert.alert('הצלחה', 'היסטוריית ההורדות נמחקה.');
   };
 
   return {

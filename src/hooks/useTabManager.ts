@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { View } from 'react-native';
 import { captureRef } from 'react-native-view-shot';
 import { BrowserTab } from '../types/browser';
@@ -16,9 +16,19 @@ const MAX_TABS = 50;
 const RATE_LIMIT_COUNT = 3;
 const RATE_LIMIT_WINDOW_MS = 2000;
 
+/**
+ * Only the WARM_TAB_LIMIT most-recently-active tabs keep a mounted WebView.
+ * Every WebView is a heavy native view, so with MAX_TABS as high as 50,
+ * mounting all of them at once (previously just hidden with display:none)
+ * could exhaust memory on weaker devices. Older tabs are "suspended" —
+ * their WebView unmounts and the tab shows a lightweight placeholder until
+ * reselected, at which point it remounts fresh at its last known URL.
+ */
+const WARM_TAB_LIMIT = 6;
+
 export function useTabManager() {
   const [tabs, setTabs] = useState<BrowserTab[]>([
-    { id: '1', url: DEFAULT_URL, initialUrl: DEFAULT_URL, title: 'Google', canGoBack: false, canGoForward: false }
+    { id: '1', url: DEFAULT_URL, initialUrl: DEFAULT_URL, title: 'Google', canGoBack: false, canGoForward: false, lastActiveAt: Date.now() }
   ]);
   const [activeTabId, setActiveTabId] = useState('1');
   const [isTabSwitcherOpen, setIsTabSwitcherOpen] = useState(false);
@@ -95,6 +105,7 @@ export function useTabManager() {
       title: 'Google',
       canGoBack: false,
       canGoForward: false,
+      lastActiveAt: Date.now(),
     };
     // Track parent so hardware back closes this tab and returns to parent
     tabParentMap.current[newId] = activeTabId;
@@ -111,7 +122,7 @@ export function useTabManager() {
     if (filtered.length === 0) {
       const newId = Math.random().toString(36).substring(7);
       setTabs([
-        { id: newId, url: DEFAULT_URL, initialUrl: DEFAULT_URL, title: 'Google', canGoBack: false, canGoForward: false }
+        { id: newId, url: DEFAULT_URL, initialUrl: DEFAULT_URL, title: 'Google', canGoBack: false, canGoForward: false, lastActiveAt: Date.now() }
       ]);
       setActiveTabId(newId);
     } else {
@@ -134,11 +145,41 @@ export function useTabManager() {
     tabParentMap.current = {};
     const newId = Math.random().toString(36).substring(7);
     setTabs([
-      { id: newId, url: DEFAULT_URL, initialUrl: DEFAULT_URL, title: 'Google', canGoBack: false, canGoForward: false }
+      { id: newId, url: DEFAULT_URL, initialUrl: DEFAULT_URL, title: 'Google', canGoBack: false, canGoForward: false, lastActiveAt: Date.now() }
     ]);
     setActiveTabId(newId);
     setIsTabSwitcherOpen(false);
   };
+
+  /**
+   * Stamp the active tab's `lastActiveAt` whenever it changes, and — if the
+   * tab being activated had fallen out of the warm set (i.e. its WebView was
+   * suspended) — resync `initialUrl` to its last known `url` so the remount
+   * resumes at the right page instead of the tab's original URL.
+   */
+  useEffect(() => {
+    setTabs(prev => {
+      const sortedByRecency = [...prev].sort((a, b) => (b.lastActiveAt || 0) - (a.lastActiveAt || 0));
+      const wasWarm = new Set(sortedByRecency.slice(0, WARM_TAB_LIMIT).map(t => t.id));
+      const now = Date.now();
+      return prev.map(t => {
+        if (t.id !== activeTabId) return t;
+        const isResuming = !wasWarm.has(t.id);
+        return {
+          ...t,
+          lastActiveAt: now,
+          initialUrl: isResuming ? t.url : t.initialUrl,
+        };
+      });
+    });
+  }, [activeTabId]);
+
+  const warmTabIds = useMemo(() => {
+    const sorted = [...tabs].sort((a, b) => (b.lastActiveAt || 0) - (a.lastActiveAt || 0));
+    const ids = new Set(sorted.slice(0, WARM_TAB_LIMIT).map(t => t.id));
+    ids.add(activeTabId);
+    return ids;
+  }, [tabs, activeTabId]);
 
   const activeTab = tabs.find(t => t.id === activeTabId) || tabs[0] || {
     id: '1',
@@ -161,6 +202,7 @@ export function useTabManager() {
     setHasLoadedFromStorage,
     viewRefs,
     tabParentMap,
+    warmTabIds,
     captureActiveTabScreenshot,
     handleOpenTabSwitcher,
     handleAddNewTab,

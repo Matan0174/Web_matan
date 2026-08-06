@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Alert, Keyboard } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { extractDomainName } from '../utils/urlHelper';
+import { STORAGE_KEYS, setJSON, setString } from '../utils/storage';
 
 const DEFAULT_PIN = '1234';
 
@@ -23,30 +23,18 @@ export function useContentFilter() {
 
   // Storage handlers
   const saveBlacklist = async (newList: string[]) => {
-    try {
-      setBlacklist(newList);
-      await AsyncStorage.setItem('@browser_blacklist', JSON.stringify(newList));
-    } catch (e) {
-      console.error('Failed to save blacklist', e);
-    }
+    setBlacklist(newList);
+    await setJSON(STORAGE_KEYS.blacklist, newList);
   };
 
   const savePin = async (newPin: string) => {
-    try {
-      setSavedPin(newPin);
-      await AsyncStorage.setItem('@browser_pin', newPin);
-    } catch (e) {
-      console.error('Failed to save PIN', e);
-    }
+    setSavedPin(newPin);
+    await setString(STORAGE_KEYS.pin, newPin);
   };
 
   const saveAutoBlock = async (enabled: boolean) => {
-    try {
-      setAutoBlockEnabled(enabled);
-      await AsyncStorage.setItem('@browser_autoblock', enabled ? 'true' : 'false');
-    } catch (e) {
-      console.error('Failed to save content filter toggle', e);
-    }
+    setAutoBlockEnabled(enabled);
+    await setString(STORAGE_KEYS.autoBlock, enabled ? 'true' : 'false');
   };
 
   // PIN keypad processing
