@@ -199,8 +199,12 @@ export const NAVIGATION_INTERCEPT_JS = `
         }
         if (target && target.href) {
           try {
+            var isBlank = target.target === '_blank';
+            if (isBlank) {
+              e.preventDefault();
+            }
             window.ReactNativeWebView.postMessage(JSON.stringify({
-              type: 'navigationRequest',
+              type: isBlank ? 'windowOpen' : 'navigationRequest',
               url: target.href
             }));
           } catch(err) {}

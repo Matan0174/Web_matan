@@ -379,6 +379,9 @@ function BrowserApp() {
               injectScrollRestore(ref, scrollPositions.current[tabId], 100);
             }
           }
+        } else if (data.url && data.type === 'windowOpen') {
+          // Open the allowed URL in a new tab
+          handleAddNewTab(undefined, data.url);
         }
       }
     } catch (e) {}

@@ -90,19 +90,22 @@ export function useTabManager() {
     recentTabCreations.current.push(Date.now());
   };
 
-  const handleAddNewTab = async (closeMenu?: () => void) => {
+  const handleAddNewTab = async (closeMenu?: () => void, urlToOpen?: string) => {
     if (closeMenu) closeMenu();
 
     // User-initiated: bypass rate-limit but still enforce hard cap
-    if (shouldBlockTabCreation(tabs.length, true)) return;
+    // If opened via script (urlToOpen provided), it's not strictly user-initiated in the menu sense,
+    // but shouldBlockTabCreation takes `isUserInitiated`. We'll pass `!urlToOpen` or `true`.
+    if (shouldBlockTabCreation(tabs.length, !urlToOpen)) return;
 
     await captureActiveTabScreenshot(activeTabId);
     const newId = Math.random().toString(36).substring(7);
+    const startUrl = urlToOpen || DEFAULT_URL;
     const newTab: BrowserTab = {
       id: newId,
-      url: DEFAULT_URL,
-      initialUrl: DEFAULT_URL,
-      title: 'Google',
+      url: startUrl,
+      initialUrl: startUrl,
+      title: urlToOpen ? 'Loading...' : 'Google',
       canGoBack: false,
       canGoForward: false,
       lastActiveAt: Date.now(),
