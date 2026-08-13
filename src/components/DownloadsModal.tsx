@@ -3,13 +3,7 @@ import { StyleSheet, Text, View, Modal, TouchableOpacity, ScrollView, Linking } 
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../styles/globalStyles';
-
-interface DownloadItem {
-  id: string;
-  filename: string;
-  url: string;
-  timestamp: number;
-}
+import { DownloadItem } from '../types/browser';
 
 interface DownloadsModalProps {
   visible: boolean;

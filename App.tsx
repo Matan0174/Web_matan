@@ -235,6 +235,7 @@ function BrowserApp() {
     activeTabId,
     blacklist,
     autoBlockEnabled,
+    hasLoadedFromStorage,
     shouldBlockTabCreation,
     recordTabCreation,
     tabParentMap,

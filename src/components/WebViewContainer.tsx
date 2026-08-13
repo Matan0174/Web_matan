@@ -117,7 +117,12 @@ export default function WebViewContainer({
               const ref = webViewRefs.current[tab.id];
               if (ref) {
                 const lastUrl = lastValidUrls.current[tab.id] || tab.url;
-                ref.reload();
+                try {
+                  ref.injectJavaScript(`window.location.href = ${JSON.stringify(lastUrl)}; true;`);
+                } catch (e) {
+                  // injectJavaScript may fail if the process is gone; fallback to reload
+                  ref.reload();
+                }
               }
             }}
             // ── Error Handling ──

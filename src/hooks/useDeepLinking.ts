@@ -8,6 +8,9 @@ interface UseDeepLinkingParams {
   activeTabId: string;
   blacklist: string[];
   autoBlockEnabled: boolean;
+  /** Must be true once AsyncStorage has been fully loaded so that
+   *  cold-start deep links don't race with the storage restore. */
+  hasLoadedFromStorage: boolean;
   shouldBlockTabCreation: (currentTabCount: number) => boolean;
   recordTabCreation: () => void;
   tabParentMap: React.MutableRefObject<{ [key: string]: string }>;
@@ -34,6 +37,7 @@ export function useDeepLinking({
   activeTabId,
   blacklist,
   autoBlockEnabled,
+  hasLoadedFromStorage,
   shouldBlockTabCreation,
   recordTabCreation,
   tabParentMap,
@@ -103,21 +107,28 @@ export function useDeepLinking({
   const deepLinkRef = useRef(handleDeepLink);
   useEffect(() => { deepLinkRef.current = handleDeepLink; }, [handleDeepLink]);
 
-  // Runs ONCE on mount — no dependency on handleDeepLink.
+  // ── Warm-start listener ──
+  // Runs ONCE on mount.  The app is already running and receives a new URL.
   useEffect(() => {
-    // Cold-start: process the URL the app was opened with (once only)
-    Linking.getInitialURL().then(url => {
-      if (url && !initialUrlHandled.current) {
-        initialUrlHandled.current = true;
-        deepLinkRef.current(url);
-      }
-    });
-
-    // Warm-start: the app is already running and receives a new URL
     const subscription = Linking.addEventListener('url', (event) => {
       if (event.url) deepLinkRef.current(event.url);
     });
 
     return () => subscription.remove();
   }, []);
+
+  // ── Cold-start handler ──
+  // Deferred until storage has been fully restored so that
+  // `loadStorage → setTabs(savedTabs)` doesn't overwrite the deep-link tab.
+  useEffect(() => {
+    if (!hasLoadedFromStorage) return;
+    if (initialUrlHandled.current) return;
+
+    Linking.getInitialURL().then(url => {
+      if (url && !initialUrlHandled.current) {
+        initialUrlHandled.current = true;
+        deepLinkRef.current(url);
+      }
+    });
+  }, [hasLoadedFromStorage]);
 }

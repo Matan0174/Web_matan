@@ -119,6 +119,7 @@ export function useTabManager() {
   };
 
   const handleCloseTab = (tabId: string) => {
+    const parentId = tabParentMap.current[tabId];
     delete tabParentMap.current[tabId];
 
     const filtered = tabs.filter(t => t.id !== tabId);
@@ -130,7 +131,6 @@ export function useTabManager() {
       setActiveTabId(newId);
     } else {
       if (activeTabId === tabId) {
-        const parentId = tabParentMap.current[tabId];
         const parentExists = parentId && filtered.some(t => t.id === parentId);
         if (parentExists) {
           setActiveTabId(parentId);
