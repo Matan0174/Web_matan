@@ -18,7 +18,6 @@ interface DropdownMenuModalProps {
   onGoForward: () => void;
   onRefresh: () => void;
   onGoHome: () => void;
-  onAddNewTab: () => void;
   onSharePage: () => void;
   isCurrentPageBookmarked: boolean;
   onToggleBookmark: () => void;
@@ -36,7 +35,6 @@ export default function DropdownMenuModal({
   onGoForward,
   onRefresh,
   onGoHome,
-  onAddNewTab,
   onSharePage,
   isCurrentPageBookmarked,
   onToggleBookmark,
@@ -114,12 +112,6 @@ export default function DropdownMenuModal({
           </View>
 
           <View style={styles.menuDivider} />
-
-          {/* New Tab */}
-          <TouchableOpacity style={styles.menuItem} onPress={onAddNewTab}>
-            <Ionicons name="add-outline" size={22} color={COLORS.greyDark} />
-            <Text style={styles.menuItemText}>כרטיסייה חדשה</Text>
-          </TouchableOpacity>
 
           {/* Share */}
           <TouchableOpacity style={styles.menuItem} onPress={onSharePage}>

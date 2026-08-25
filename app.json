@@ -20,7 +20,8 @@
           "android": {
             "usesCleartextTraffic": true,
             "enableProguardInReleaseBuilds": true,
-            "extraProguardRules": "-keep class com.reactnativecommunity.webview.** { *; }\n-keep class android.webkit.** { *; }\n-keep class com.facebook.react.** { *; }\n-keepclassmembers class * {\n  @android.webkit.JavascriptInterface <methods>;\n}\n-dontwarn com.reactnativecommunity.webview.**"
+            "extraProguardRules": "-keep class com.reactnativecommunity.webview.** { *; }\n-keep class android.webkit.** { *; }\n-keep class com.facebook.react.** { *; }\n-keepclassmembers class * {\n  @android.webkit.JavascriptInterface <methods>;\n}\n-dontwarn com.reactnativecommunity.webview.**",
+            "enableMinifyInReleaseBuilds": true
           }
         }
       ]

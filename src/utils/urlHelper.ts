@@ -1,4 +1,53 @@
-import { FORBIDDEN_KEYWORDS } from '../constants/forbidden';
+import {
+  FORBIDDEN_KEYWORDS,
+  KEYWORD_EXCEPTIONS,
+  CIRCUMVENTION_DOMAINS,
+} from '../constants/forbidden';
+
+/**
+ * Percent-decodes a URL for keyword scanning, falling back to the raw string
+ * on malformed input.
+ *
+ * Without this the non-Latin keywords never fire at all: a search for "סקס"
+ * reaches us as ".../search?q=%D7%A1%D7%A7%D7%A1", which contains none of the
+ * Hebrew entries in FORBIDDEN_KEYWORDS.
+ */
+const decodeForScanning = (url: string): string => {
+  try {
+    return decodeURIComponent(url).toLowerCase();
+  } catch {
+    return url.toLowerCase();
+  }
+};
+
+/**
+ * True when the keyword occurrence spanning [start, end) sits entirely inside
+ * one of the KEYWORD_EXCEPTIONS — the "sex" inside "essex", for instance.
+ */
+const isExcusedByException = (text: string, start: number, end: number): boolean =>
+  KEYWORD_EXCEPTIONS.some(exception => {
+    let at = text.indexOf(exception);
+    while (at !== -1) {
+      if (at <= start && at + exception.length >= end) return true;
+      at = text.indexOf(exception, at + 1);
+    }
+    return false;
+  });
+
+/**
+ * True when `keyword` appears in `text` at least once outside every exception.
+ * Checking each occurrence separately (rather than stripping exceptions from
+ * the text first) means an exception can never mask a genuine match that
+ * merely overlaps it.
+ */
+const hasUnexcusedMatch = (text: string, keyword: string): boolean => {
+  let at = text.indexOf(keyword);
+  while (at !== -1) {
+    if (!isExcusedByException(text, at, at + keyword.length)) return true;
+    at = text.indexOf(keyword, at + 1);
+  }
+  return false;
+};
 
 /**
  * Checks if a given URL is prohibited by the content filter or manual blacklist.
@@ -9,45 +58,69 @@ export const isUrlProhibited = (
   autoBlockEnabled: boolean
 ): boolean => {
   if (!url) return false;
-  const normalizedUrl = url.toLowerCase();
 
   // 1. Predefined Keywords Block
   if (autoBlockEnabled) {
-    if (FORBIDDEN_KEYWORDS.some(keyword => normalizedUrl.includes(keyword))) {
+    const haystack = decodeForScanning(url);
+    if (FORBIDDEN_KEYWORDS.some(keyword => hasUnexcusedMatch(haystack, keyword))) {
       return true;
     }
   }
 
-  // 2. Manual Blacklist Block
+  // 2. Circumvention services — blocked whenever the automatic filter is on,
+  // since letting one through voids every other rule in this function.
+  if (autoBlockEnabled) {
+    const proxyHost = extractDomainName(url);
+    if (
+      proxyHost &&
+      CIRCUMVENTION_DOMAINS.some(
+        d => proxyHost === d || proxyHost.endsWith('.' + d)
+      )
+    ) {
+      return true;
+    }
+  }
+
+  // 3. Manual Blacklist Block
+  // Both sides go through extractDomainName so the comparison is always
+  // hostname-vs-hostname — see the note there about the bypasses a looser
+  // parse allows.
+  const host = extractDomainName(url);
+  if (!host) return false;
+
   return blacklist.some(domain => {
     if (!domain) return false;
-    const cleanDomain = domain.trim().toLowerCase();
-    try {
-      let host = normalizedUrl;
-      if (host.includes('://')) {
-        host = host.split('://')[1];
-      }
-      host = host.split('/')[0];
-      host = host.split('?')[0];
-      return host === cleanDomain || host.endsWith('.' + cleanDomain);
-    } catch (e) {
-      return normalizedUrl.includes(cleanDomain);
-    }
+    const cleanDomain = extractDomainName(domain);
+    if (!cleanDomain) return false;
+    return host === cleanDomain || host.endsWith('.' + cleanDomain);
   });
 };
 
 /**
- * Extracts domain name (e.g. "google.com") from a full URL input.
+ * Extracts the hostname (e.g. "google.com") from a full URL or a raw domain.
+ *
+ * The order of the steps matters — it is what keeps the blacklist check in
+ * isUrlProhibited from being trivially bypassed:
+ *  - the authority is everything before the first `/`, `?` or `#`, so
+ *    `blocked.com#x` is not read as the host "blocked.com#x";
+ *  - a `user:pass@` prefix is dropped *before* the port, otherwise
+ *    `allowed.com@blocked.com` reads as a host matching neither, and
+ *    splitting on ":" first would turn `user:pass@blocked.com` into "user";
+ *  - only then is the `:port` suffix removed, so `blocked.com:443` still
+ *    resolves to "blocked.com".
  */
 export const extractDomainName = (input: string): string => {
   let domain = input.trim().toLowerCase();
   if (domain.includes('://')) {
-    domain = domain.split('://')[1];
+    domain = domain.split('://')[1] || '';
   }
-  domain = domain.split('/')[0];
+  // Authority only — drop path, query and fragment in a single pass
+  domain = domain.split(/[/?#]/)[0];
+  // Drop userinfo; must happen before the port is stripped
+  if (domain.includes('@')) {
+    domain = domain.slice(domain.lastIndexOf('@') + 1);
+  }
   domain = domain.split(':')[0];
-  domain = domain.split('?')[0];
-  domain = domain.split('#')[0];
   if (domain.startsWith('www.')) {
     domain = domain.slice(4);
   }

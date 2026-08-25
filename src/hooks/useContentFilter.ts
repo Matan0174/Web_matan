@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Alert, Keyboard } from 'react-native';
 import { extractDomainName } from '../utils/urlHelper';
 import { STORAGE_KEYS, setJSON, setString } from '../utils/storage';
+import { clearDnsCache } from '../utils/dnsFilter';
 
 const DEFAULT_PIN = '1234';
 
@@ -16,6 +17,8 @@ export function useContentFilter() {
   // Blocking mechanism states
   const [blacklist, setBlacklist] = useState<string[]>([]);
   const [autoBlockEnabled, setAutoBlockEnabled] = useState(true);
+  /** Filtering via a family-filtering DNS resolver — see utils/dnsFilter. */
+  const [dnsFilterEnabled, setDnsFilterEnabled] = useState(false);
   const [isCurrentUrlBlocked, setIsCurrentUrlBlocked] = useState(false);
 
   // Manual Blacklist Input state
@@ -35,6 +38,13 @@ export function useContentFilter() {
   const saveAutoBlock = async (enabled: boolean) => {
     setAutoBlockEnabled(enabled);
     await setString(STORAGE_KEYS.autoBlock, enabled ? 'true' : 'false');
+  };
+
+  const saveDnsFilter = async (enabled: boolean) => {
+    setDnsFilterEnabled(enabled);
+    await setString(STORAGE_KEYS.dnsFilter, enabled ? 'true' : 'false');
+    // Verdicts from the previous state must not survive the toggle.
+    await clearDnsCache();
   };
 
   // PIN keypad processing
@@ -169,6 +179,8 @@ export function useContentFilter() {
     setBlacklist,
     autoBlockEnabled,
     setAutoBlockEnabled,
+    dnsFilterEnabled,
+    setDnsFilterEnabled,
     isCurrentUrlBlocked,
     setIsCurrentUrlBlocked,
     newBlacklistDomain,
@@ -176,6 +188,7 @@ export function useContentFilter() {
     saveBlacklist,
     savePin,
     saveAutoBlock,
+    saveDnsFilter,
     handleKeyPress,
     handleBackspace,
     handleAddBlacklist,

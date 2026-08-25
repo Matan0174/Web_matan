@@ -10,6 +10,8 @@ export const STORAGE_KEYS = {
   bookmarks: '@browser_bookmarks',
   tabs: '@browser_tabs',
   activeTabId: '@browser_active_tab_id',
+  dnsFilter: '@browser_dns_filter_enabled',
+  dnsCache: '@browser_dns_cache',
 } as const;
 
 export async function getJSON<T>(key: string, fallback: T): Promise<T> {

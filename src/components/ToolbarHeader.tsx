@@ -29,6 +29,7 @@ interface ToolbarHeaderProps {
   handleNavigate: () => void;
   handleOpenMenu: () => void;
   handleOpenTabSwitcher: () => void;
+  handleAddNewTab: () => void;
   suggestions?: string[];
   onSelectSuggestion?: (suggestion: string) => void;
 }
@@ -48,6 +49,7 @@ export default function ToolbarHeader({
   handleNavigate,
   handleOpenMenu,
   handleOpenTabSwitcher,
+  handleAddNewTab,
   suggestions = [],
   onSelectSuggestion,
 }: ToolbarHeaderProps) {
@@ -163,6 +165,17 @@ export default function ToolbarHeader({
           ) : null}
         </View>
 
+        {/* New Tab Button */}
+        <TouchableOpacity
+          onPress={handleAddNewTab}
+          style={styles.iconButton}
+          activeOpacity={0.6}
+          hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+          accessibilityLabel="כרטיסייה חדשה"
+        >
+          <Ionicons name="add" size={24} color={COLORS.greyDark} />
+        </TouchableOpacity>
+
         {/* Tab Indicator Button — Chrome square with count */}
         <TouchableOpacity
           style={styles.tabIndicatorButton}
@@ -261,7 +274,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   iconButton: {
-    width: 36,
+    width: 32,
     height: 36,
     justifyContent: 'center',
     alignItems: 'center',
@@ -296,7 +309,7 @@ const styles = StyleSheet.create({
     padding: 2,
   },
   tabIndicatorButton: {
-    width: 36,
+    width: 32,
     height: 36,
     justifyContent: 'center',
     alignItems: 'center',

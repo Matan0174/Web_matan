@@ -21,4 +21,11 @@
   @android.webkit.JavascriptInterface <methods>;
 }
 -dontwarn com.reactnativecommunity.webview.**
+-keep class com.reactnativecommunity.webview.** { *; }
+-keep class android.webkit.** { *; }
+-keep class com.facebook.react.** { *; }
+-keepclassmembers class * {
+  @android.webkit.JavascriptInterface <methods>;
+}
+-dontwarn com.reactnativecommunity.webview.**
 # @generated end expo-build-properties

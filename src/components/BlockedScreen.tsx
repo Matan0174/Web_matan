@@ -5,18 +5,35 @@ import { COLORS, CARD_SHADOW } from '../styles/globalStyles';
 
 interface BlockedScreenProps {
   handleGoHome: () => void;
+  /**
+   * 'filter'     — the page was classified as blocked.
+   * 'unverified' — the filter could not be reached, and the fail-closed policy
+   *                refused the page rather than letting it through unchecked.
+   * The two are worth separating: the second is a fault the user can act on
+   * (check the connection), not a verdict about the site.
+   */
+  reason?: 'filter' | 'unverified';
 }
 
-export default function BlockedScreen({ handleGoHome }: BlockedScreenProps) {
+export default function BlockedScreen({ handleGoHome, reason = 'filter' }: BlockedScreenProps) {
+  const unverified = reason === 'unverified';
   return (
     <View style={styles.blockedContainer}>
       <View style={styles.blockedCard}>
         <View style={styles.blockedIconContainer}>
-          <MaterialCommunityIcons name="shield-alert" size={72} color={COLORS.redWarning} />
+          <MaterialCommunityIcons
+            name={unverified ? 'shield-off-outline' : 'shield-alert'}
+            size={72}
+            color={COLORS.redWarning}
+          />
         </View>
-        <Text style={styles.blockedTitle}>הגישה לאתר זה חסומה</Text>
+        <Text style={styles.blockedTitle}>
+          {unverified ? 'לא ניתן לאמת את האתר' : 'הגישה לאתר זה חסומה'}
+        </Text>
         <Text style={styles.blockedDesc}>
-          דף זה סווג כלא בטוח או חסום לצפייה על פי הגדרות הסינון של הדפדפן.
+          {unverified
+            ? 'שירות הסינון אינו זמין כרגע, ולכן הגישה נחסמה מטעמי זהירות. בדוק את חיבור האינטרנט ונסה שוב.'
+            : 'דף זה סווג כלא בטוח או חסום לצפייה על פי הגדרות הסינון של הדפדפן.'}
         </Text>
         <TouchableOpacity style={styles.blockedGoHomeBtn} onPress={handleGoHome}>
           <Text style={styles.blockedGoHomeText}>חזרה למקום מבטחים</Text>

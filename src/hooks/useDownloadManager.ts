@@ -55,9 +55,15 @@ export function useDownloadManager(
                   timestamp: Date.now(),
                 };
 
-                const updated = [newItem, ...downloads];
-                setDownloads(updated);
-                await setJSON(STORAGE_KEYS.downloads, updated);
+                // Functional update + persist from inside the updater:
+                // `downloads` here would be the value captured when the
+                // Alert was rendered, so two downloads finishing close
+                // together would make the second one drop the first.
+                setDownloads(prev => {
+                  const updated = [newItem, ...prev];
+                  setJSON(STORAGE_KEYS.downloads, updated);
+                  return updated;
+                });
 
                 Alert.alert(
                   'ההורדה הושלמה',

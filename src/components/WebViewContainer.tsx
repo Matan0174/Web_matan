@@ -99,7 +99,11 @@ export default function WebViewContainer({
             mixedContentMode="always"
             allowsBackForwardNavigationGestures={true}
             javaScriptCanOpenWindowsAutomatically={false}
-            allowFileAccess={true}
+            // allowFileAccess is deliberately NOT enabled: this WebView loads
+            // arbitrary untrusted pages, and file:// access would let one of
+            // them read the app's own sandbox (including the AsyncStorage
+            // database that holds the PIN and the blacklist). Downloads don't
+            // need it — they go through expo-file-system, not the WebView.
             mediaCapturePermissionGrantType="grant"
             cacheEnabled={true}
             // ── Android Standalone Fixes ──

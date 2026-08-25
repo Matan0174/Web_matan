@@ -15,6 +15,8 @@ import { COLORS } from '../styles/globalStyles';
 interface SettingsScreenProps {
   autoBlockEnabled: boolean;
   saveAutoBlock: (enabled: boolean) => void;
+  dnsFilterEnabled: boolean;
+  saveDnsFilter: (enabled: boolean) => void;
   blacklist: string[];
   newBlacklistDomain: string;
   setNewBlacklistDomain: (text: string) => void;
@@ -27,6 +29,8 @@ interface SettingsScreenProps {
 export default function SettingsScreen({
   autoBlockEnabled,
   saveAutoBlock,
+  dnsFilterEnabled,
+  saveDnsFilter,
   blacklist,
   newBlacklistDomain,
   setNewBlacklistDomain,
@@ -63,6 +67,31 @@ export default function SettingsScreen({
               onValueChange={saveAutoBlock}
               trackColor={{ false: '#dadce0', true: '#aecbfa' }}
               thumbColor={autoBlockEnabled ? COLORS.blueAccent : COLORS.greyLight}
+            />
+          </View>
+        </View>
+
+        {/* Network-level filtering */}
+        <View style={styles.settingCard}>
+          <View style={styles.settingRow}>
+            <View style={styles.settingTextContainer}>
+              <Text style={styles.settingLabel}>סינון מבוסס רשת</Text>
+              <Text style={styles.settingDesc}>
+                בודק כל אתר מול שירות סינון מקצועי המכסה מיליוני דומיינים ומתעדכן
+                באופן שוטף — בדומה לסינון של חברות הסלולר. חוסם פורנוגרפיה, אתרי
+                היכרויות, ושירותי פרוקסי ו-VPN המשמשים לעקיפת סינון. אם השירות
+                אינו זמין, הגלישה תיחסם עד שיחזור.
+              </Text>
+              <Text style={[styles.settingDesc, { marginTop: 8, fontStyle: 'italic' }]}>
+                שים לב: כתובות האתרים שבהם גולשים נשלחות לשירות הסינון
+                (CleanBrowsing) לצורך הבדיקה.
+              </Text>
+            </View>
+            <Switch
+              value={dnsFilterEnabled}
+              onValueChange={saveDnsFilter}
+              trackColor={{ false: '#dadce0', true: '#aecbfa' }}
+              thumbColor={dnsFilterEnabled ? COLORS.blueAccent : COLORS.greyLight}
             />
           </View>
         </View>

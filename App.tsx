@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
+  Alert,
   StyleSheet,
   View,
   BackHandler,
@@ -24,8 +25,12 @@ import {
   isUrlProhibited,
   normalizeNavigationUrl,
   getDisplayDomain,
+  extractDomainName,
 } from './src/utils/urlHelper';
 import { injectNavigate, injectScrollRestore } from './src/utils/webviewNav';
+import { isExternalAppUrl, parseIntentUrl } from './src/utils/externalScheme';
+import { loadDnsCache, checkHost, getCachedVerdict } from './src/utils/dnsFilter';
+import { enforceSafeSearch, needsSafeSearchRedirect } from './src/utils/safeSearch';
 import { STORAGE_KEYS, getJSON, getString, setJSON, setString } from './src/utils/storage';
 
 // Hooks
@@ -68,6 +73,14 @@ function BrowserApp() {
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
+  /**
+   * A non-'allowed' verdict from the DNS filter, tagged with the URL it was
+   * decided for. Kept as state rather than folded straight into
+   * isCurrentUrlBlocked because the effect that recomputes that flag would
+   * otherwise clear the DNS decision on its next run.
+   */
+  const [dnsBlock, setDnsBlock] = useState<{ url: string; reason: 'filter' | 'unverified' } | null>(null);
+
   // Back navigation & scroll position refs
   const backNavGuard = useRef(false);
   const scrollPositions = useRef<{ [tabId: string]: { x: number; y: number } }>({});
@@ -108,12 +121,15 @@ function BrowserApp() {
     setBlacklist,
     autoBlockEnabled,
     setAutoBlockEnabled,
+    dnsFilterEnabled,
+    setDnsFilterEnabled,
     isCurrentUrlBlocked,
     setIsCurrentUrlBlocked,
     newBlacklistDomain,
     setNewBlacklistDomain,
     saveBlacklist,
     saveAutoBlock,
+    saveDnsFilter,
     handleKeyPress,
     handleBackspace,
     handleAddBlacklist,
@@ -136,6 +152,7 @@ function BrowserApp() {
     if (!target) return;
 
     target = normalizeNavigationUrl(target);
+    if (autoBlockEnabled) target = enforceSafeSearch(target);
 
     if (isUrlProhibited(target, blacklist, autoBlockEnabled)) {
       // Only update tab URL via setTabs for blocked URLs (to show blocked screen)
@@ -190,6 +207,10 @@ function BrowserApp() {
 
         const autoBlock = await getString(STORAGE_KEYS.autoBlock);
         if (autoBlock !== null) setAutoBlockEnabled(autoBlock === 'true');
+
+        const dnsFilter = await getString(STORAGE_KEYS.dnsFilter);
+        if (dnsFilter !== null) setDnsFilterEnabled(dnsFilter === 'true');
+        await loadDnsCache();
 
         setDownloads(await getJSON(STORAGE_KEYS.downloads, [] as typeof downloads));
         setHistory(await getJSON(STORAGE_KEYS.history, [] as typeof history));
@@ -259,13 +280,19 @@ function BrowserApp() {
       // changing blacklist / autoBlockEnabled from settings would trigger
       // cascading state updates that freeze the UI.
       if (!backNavGuard.current && !isSettingsOpen) {
-        const blocked = isUrlProhibited(activeTab.url, blacklist, autoBlockEnabled);
+        // The DNS verdict only counts while the filter is on, so switching it
+        // off releases a page it had already blocked instead of stranding the
+        // user on the blocked screen.
+        const blocked =
+          isUrlProhibited(activeTab.url, blacklist, autoBlockEnabled) ||
+          (dnsFilterEnabled && dnsBlock !== null && dnsBlock.url === activeTab.url);
         setIsCurrentUrlBlocked(blocked);
       }
     }
-  }, [activeTabId, blacklist, autoBlockEnabled, activeTab.url, isInputFocused, isSettingsOpen]);
+  }, [activeTabId, blacklist, autoBlockEnabled, activeTab.url, isInputFocused, isSettingsOpen, dnsBlock, dnsFilterEnabled]);
 
   const handleGoHome = () => {
+    setDnsBlock(null);
     if (isCurrentUrlBlocked) {
       setIsCurrentUrlBlocked(false);
       const activeRef = webViewRefs.current[activeTabId];
@@ -380,28 +407,88 @@ function BrowserApp() {
               injectScrollRestore(ref, scrollPositions.current[tabId], 100);
             }
           }
-        } else if (data.url && data.type === 'windowOpen') {
-          // Open the allowed URL in a new tab
+        } else if (data.url && isExternalAppUrl(data.url)) {
+          // Both a popup and a plain link can target another app — a bank
+          // handing off from checkout, or the redirect that ends an OAuth
+          // login. No tab could ever load that, so it goes to the OS.
+          //
+          // Ordinary link clicks are covered here as well as popups because
+          // letting the WebView start the navigation is not dependable: an
+          // unknown scheme that slips past onShouldStartLoadWithRequest is
+          // dropped by Android without an error, which looks to the user like
+          // the button simply does nothing. The injected interceptor cancels
+          // the click for these URLs, so this cannot open the app twice.
+          openExternalUrl(data.url, tabId);
+        } else if (data.url && data.type === 'windowOpen' && /^https?:/i.test(data.url)) {
           handleAddNewTab(undefined, data.url);
         }
       }
     } catch (e) {}
   };
 
+  /**
+   * Hands a non-web URL to the OS.
+   *
+   * Deliberately does NOT gate on `Linking.canOpenURL`: since Android 11 the
+   * package-visibility rules make canOpenURL return false for every scheme not
+   * listed in the manifest's <queries>, while `openURL` — which goes through
+   * startActivity — still launches the target app. Gating on canOpenURL meant
+   * every custom scheme (bank apps, tel:, whatsapp:) silently did nothing.
+   *
+   * An `intent:` URL is rebuilt into its real target first (see parseIntentUrl):
+   * passing it to Linking as-is can never work, because Linking asks the system
+   * for an app registered on the literal scheme "intent". That is the hand-off
+   * Android pages use to return to a native app after a login, so it failing
+   * silently is what stranded OAuth flows on the consent page.
+   */
+  const openExternalUrl = async (url: string, tabId: string) => {
+    const intent = parseIntentUrl(url);
+    const target = intent ? intent.targetUrl : url;
+
+    if (target) {
+      try {
+        await Linking.openURL(target);
+        return;
+      } catch (e) {}
+    }
+
+    // Nothing on the device handles it. An intent: URL can carry its own web
+    // fallback for exactly this case — honour it before giving up.
+    if (intent && intent.fallbackUrl) {
+      injectNavigate(webViewRefs.current[tabId], intent.fallbackUrl);
+      return;
+    }
+
+    // The URL is included so a hand-off that fails on someone else's device is
+    // reportable instead of just being "nothing happened".
+    const shown = url.length > 120 ? url.slice(0, 120) + '…' : url;
+    const appLine = intent && intent.packageName
+      ? '\n\nאפליקציה מבוקשת: ' + intent.packageName
+      : '';
+    Alert.alert(
+      'לא ניתן לפתוח',
+      'לא נמצאה במכשיר אפליקציה שיכולה לפתוח את הקישור הזה.' + appLine + '\n\n' + shown
+    );
+  };
+
   const handleShouldStartLoadWithRequest = (request: any, tabId: string): boolean => {
     const { url } = request;
 
-    if (
-      !url.startsWith('http://') &&
-      !url.startsWith('https://') &&
-      !url.startsWith('about:') &&
-      !url.startsWith('data:') &&
-      !url.startsWith('blob:') &&
-      !url.startsWith('intent:')
-    ) {
-      Linking.canOpenURL(url).then(supported => {
-        if (supported) Linking.openURL(url);
-      });
+    // Top-frame data: navigations are refused outright — same as Chrome does.
+    // isUrlProhibited only inspects the URL text, so a page could navigate to
+    // `data:text/html,<iframe src="https://blocked.com">` and render blocked
+    // content that never passes through the filter. Sub-frame data: URLs
+    // (images, inline documents) are untouched.
+    if (url.startsWith('data:') && request.isTopFrame !== false) {
+      return false;
+    }
+
+    // Anything that isn't a web document goes to the OS. `intent:` belongs
+    // here above all: it is Android's standard hand-off to another app (bank
+    // identification, 3-D Secure, OAuth into a native app) and a WebView
+    // cannot render it. It used to be excluded, so those flows silently died.
+    if (isExternalAppUrl(url)) {
+      openExternalUrl(url, tabId);
       return false;
     }
 
@@ -412,6 +499,29 @@ function BrowserApp() {
       injectScrollRestore(webViewRefs.current[tabId], scrollPositions.current[tabId], 100);
       return false;
     }
+
+    // A search page reached without SafeSearch is refused and immediately
+    // re-requested with it forced on. The rewritten URL already carries the
+    // parameter, so the second request passes straight through and this cannot
+    // loop.
+    if (autoBlockEnabled && needsSafeSearchRedirect(url)) {
+      injectNavigate(webViewRefs.current[tabId], enforceSafeSearch(url));
+      return false;
+    }
+
+    // The DNS verdict for an already-resolved host is available synchronously,
+    // so a known-bad host can be refused outright rather than being allowed to
+    // start and torn down afterwards. Unresolved hosts fall through and are
+    // judged in handleNavigationStateChange.
+    if (dnsFilterEnabled && getCachedVerdict(extractDomainName(url)) === 'blocked') {
+      if (tabId === activeTabId) {
+        setDnsBlock({ url, reason: 'filter' });
+        setIsCurrentUrlBlocked(true);
+      }
+      injectScrollRestore(webViewRefs.current[tabId], scrollPositions.current[tabId], 100);
+      return false;
+    }
+
     return true;
   };
 
@@ -457,6 +567,29 @@ function BrowserApp() {
           setUrlInput(navState.url);
         }
       }
+
+      // A DNS lookup is asynchronous and onShouldStartLoadWithRequest has to
+      // answer synchronously, so the load is allowed to begin and torn down
+      // here if the resolver disagrees — the same shape as the keyword abort
+      // above. FAIL-CLOSED: 'unavailable' (offline, timeout, or a network
+      // hijacking the resolver) blocks just as 'blocked' does, because in a
+      // filtering product an unanswered question must never mean permission.
+      if (dnsFilterEnabled && navState.url.startsWith('http')) {
+        const host = extractDomainName(navState.url);
+        const navigatedUrl = navState.url;
+        if (getCachedVerdict(host) !== 'allowed') {
+          checkHost(host).then(verdict => {
+            if (verdict === 'allowed') return;
+            const ref = webViewRefs.current[tabId];
+            if (ref) ref.stopLoading();
+            setDnsBlock({
+              url: navigatedUrl,
+              reason: verdict === 'blocked' ? 'filter' : 'unverified',
+            });
+            setIsCurrentUrlBlocked(true);
+          });
+        }
+      }
     }
   };
 
@@ -484,6 +617,7 @@ function BrowserApp() {
         handleNavigate={() => navigateTo(urlInput)}
         handleOpenMenu={() => setIsMenuOpen(true)}
         handleOpenTabSwitcher={handleOpenTabSwitcher}
+        handleAddNewTab={() => handleAddNewTab()}
         suggestions={suggestions}
         onSelectSuggestion={handleSelectSuggestion}
       />
@@ -496,7 +630,6 @@ function BrowserApp() {
         onGoForward={() => webViewRefs.current[activeTabId]?.goForward()}
         onRefresh={handleRefresh}
         onGoHome={handleGoHome}
-        onAddNewTab={() => handleAddNewTab(() => setIsMenuOpen(false))}
         onSharePage={handleSharePage}
         isCurrentPageBookmarked={isCurrentPageBookmarked}
         onToggleBookmark={() => handleToggleBookmark(() => setIsMenuOpen(false))}
@@ -549,6 +682,8 @@ function BrowserApp() {
           <SettingsScreen
             autoBlockEnabled={autoBlockEnabled}
             saveAutoBlock={saveAutoBlock}
+            dnsFilterEnabled={dnsFilterEnabled}
+            saveDnsFilter={saveDnsFilter}
             blacklist={blacklist}
             newBlacklistDomain={newBlacklistDomain}
             setNewBlacklistDomain={setNewBlacklistDomain}
@@ -560,7 +695,14 @@ function BrowserApp() {
         )}
         
         {isCurrentUrlBlocked && !isSettingsOpen && (
-          <BlockedScreen handleGoHome={handleGoHome} />
+          <BlockedScreen
+            handleGoHome={handleGoHome}
+            reason={
+              dnsFilterEnabled && dnsBlock && dnsBlock.url === activeTab.url
+                ? dnsBlock.reason
+                : 'filter'
+            }
+          />
         )}
       </View>
 
