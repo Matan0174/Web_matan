@@ -23,6 +23,9 @@ interface SettingsScreenProps {
   handleAddBlacklist: () => void;
   handleRemoveBlacklist: (domain: string) => void;
   openChangePinModal: () => void;
+  /** Human-readable name of the folder downloads are saved to. */
+  downloadDirLabel: string;
+  onChooseDownloadDir: () => void;
   handleClose: () => void;
 }
 
@@ -37,6 +40,8 @@ export default function SettingsScreen({
   handleAddBlacklist,
   handleRemoveBlacklist,
   openChangePinModal,
+  downloadDirLabel,
+  onChooseDownloadDir,
   handleClose,
 }: SettingsScreenProps) {
   return (
@@ -96,6 +101,22 @@ export default function SettingsScreen({
           </View>
         </View>
 
+        {/* Where downloaded files are saved */}
+        <View style={styles.settingCard}>
+          <Text style={styles.settingLabel}>תיקיית הורדות</Text>
+          <Text style={styles.settingDesc}>
+            הקבצים שמורידים נשמרים בתיקייה הזאת, ומופיעים באפליקציית הקבצים של
+            הטלפון כמו כל הורדה אחרת. אם לא נבחרה תיקייה, קבצים נשמרים רק בתוך
+            האפליקציה ולא נראים מבחוץ.
+          </Text>
+          <TouchableOpacity onPress={onChooseDownloadDir} style={styles.downloadDirBtn}>
+            <Ionicons name="folder-open-outline" size={18} color={COLORS.blueAccent} />
+            <Text numberOfLines={1} style={styles.downloadDirText}>
+              {downloadDirLabel}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
         {/* Blacklist Section */}
         <View style={styles.settingCard}>
           <Text style={styles.settingLabel}>רשימה שחורה ידנית</Text>
@@ -152,6 +173,24 @@ export default function SettingsScreen({
 }
 
 const styles = StyleSheet.create({
+  downloadDirBtn: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    marginTop: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.greyMedium,
+    backgroundColor: COLORS.bgLight,
+  },
+  downloadDirText: {
+    flex: 1,
+    marginRight: 10,
+    fontSize: 14,
+    color: COLORS.textDark,
+    textAlign: 'right',
+  },
   settingsContainer: {
     flex: 1,
     backgroundColor: COLORS.bgLight,

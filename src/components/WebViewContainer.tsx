@@ -4,6 +4,19 @@ import { WebView, WebViewNavigation } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import { BrowserTab } from '../types/browser';
 
+/**
+ * Flip to true to make every WebView inspectable from a desktop Chrome at
+ * chrome://inspect over USB — real console output, network log and DOM for the
+ * page, which is the only way to see what a sign-in flow is actually doing
+ * inside a release APK.
+ *
+ * Left off by default deliberately: this browser is the enforcement point for a
+ * PIN-locked filter, and an inspectable WebView lets anyone with USB debugging
+ * on the device run script inside it and step around that filter. Turn it on
+ * for a diagnostic build, and back off before the APK is used for real.
+ */
+const WEBVIEW_DEBUGGING = false;
+
 /** Placeholder shown for a tab whose WebView has been suspended to save memory. */
 function SuspendedTabPlaceholder({ title }: { title: string }) {
   return (
@@ -27,7 +40,8 @@ interface WebViewContainerProps {
   webViewRefs: React.MutableRefObject<{ [key: string]: WebView | null }>;
   viewRefs: React.MutableRefObject<{ [key: string]: View | null }>;
   injectedJavaScript: string;
-  injectedJavaScriptBeforeContentLoaded: string;
+  /** Per-tab because a popup tab additionally gets the opener bridge. */
+  buildInjectedJavaScriptBeforeContentLoaded: (tab: BrowserTab) => string;
   onMessage: (event: any, tabId: string) => void;
   onNavigationStateChange: (navState: WebViewNavigation, tabId: string) => void;
   onShouldStartLoadWithRequest: (request: any, tabId: string) => boolean;
@@ -44,7 +58,7 @@ export default function WebViewContainer({
   webViewRefs,
   viewRefs,
   injectedJavaScript,
-  injectedJavaScriptBeforeContentLoaded,
+  buildInjectedJavaScriptBeforeContentLoaded,
   onMessage,
   onNavigationStateChange,
   onShouldStartLoadWithRequest,
@@ -75,7 +89,7 @@ export default function WebViewContainer({
             ref={el => { webViewRefs.current[tab.id] = el; }}
             source={{ uri: tab.initialUrl }}
             injectedJavaScript={injectedJavaScript}
-            injectedJavaScriptBeforeContentLoaded={injectedJavaScriptBeforeContentLoaded}
+            injectedJavaScriptBeforeContentLoaded={buildInjectedJavaScriptBeforeContentLoaded(tab)}
             onMessage={(e) => onMessage(e, tab.id)}
             pullToRefreshEnabled={false}
             onNavigationStateChange={(navState) => {
@@ -91,6 +105,7 @@ export default function WebViewContainer({
             onLoadEnd={() => onLoadEnd(tab.id)}
             domStorageEnabled={true}
             javaScriptEnabled={true}
+            webviewDebuggingEnabled={WEBVIEW_DEBUGGING}
             // ── Live Video & Stream Playback ──
             originWhitelist={['*']}
             mediaPlaybackRequiresUserAction={false}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, Text, View, Modal, TouchableOpacity, ScrollView, Linking } from 'react-native';
+import { StyleSheet, Text, View, Modal, TouchableOpacity, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../styles/globalStyles';
@@ -8,6 +8,8 @@ import { DownloadItem } from '../types/browser';
 interface DownloadsModalProps {
   visible: boolean;
   downloads: DownloadItem[];
+  /** Opens the saved file itself — see openDownload in useDownloadManager. */
+  onOpenDownload: (item: DownloadItem) => void;
   handleClearDownloads: () => void;
   handleClose: () => void;
 }
@@ -15,6 +17,7 @@ interface DownloadsModalProps {
 export default function DownloadsModal({
   visible,
   downloads,
+  onOpenDownload,
   handleClearDownloads,
   handleClose,
 }: DownloadsModalProps) {
@@ -49,7 +52,11 @@ export default function DownloadsModal({
             </View>
           ) : (
             downloads.map(item => (
-              <View key={item.id} style={styles.downloadItemCard}>
+              <TouchableOpacity
+                key={item.id}
+                onPress={() => onOpenDownload(item)}
+                style={styles.downloadItemCard}
+              >
                 <View style={styles.downloadItemIcon}>
                   <Ionicons name="document-text-outline" size={28} color={COLORS.blueAccent} />
                 </View>
@@ -58,19 +65,16 @@ export default function DownloadsModal({
                     {item.filename}
                   </Text>
                   <Text numberOfLines={1} style={styles.downloadItemUrl}>
-                    {item.url}
+                    {item.url || 'נוצר בדף'}
                   </Text>
                   <Text style={styles.downloadItemTime}>
                     {new Date(item.timestamp).toLocaleString('he-IL')}
                   </Text>
                 </View>
-                <TouchableOpacity
-                  onPress={() => Linking.openURL(item.url)}
-                  style={styles.downloadItemOpenBtn}
-                >
+                <View style={styles.downloadItemOpenBtn}>
                   <Ionicons name="open-outline" size={20} color={COLORS.blueAccent} />
-                </TouchableOpacity>
-              </View>
+                </View>
+              </TouchableOpacity>
             ))
           )}
         </ScrollView>

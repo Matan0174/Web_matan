@@ -12,6 +12,7 @@ export const STORAGE_KEYS = {
   activeTabId: '@browser_active_tab_id',
   dnsFilter: '@browser_dns_filter_enabled',
   dnsCache: '@browser_dns_cache',
+  downloadDir: '@browser_download_dir',
 } as const;
 
 export async function getJSON<T>(key: string, fallback: T): Promise<T> {

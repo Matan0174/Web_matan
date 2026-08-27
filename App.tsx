@@ -19,19 +19,29 @@ I18nManager.forceRTL(false);
 
 // Types & Utils
 import { BrowserTab } from './src/types/browser';
-import { INJECTED_JAVASCRIPT, INJECTED_JS_BEFORE_CONTENT_LOADED } from './src/utils/injectedScripts';
+import {
+  INJECTED_JAVASCRIPT,
+  INJECTED_JS_BEFORE_CONTENT_LOADED,
+  buildOpenerBridgeJs,
+} from './src/utils/injectedScripts';
 import { COLORS } from './src/styles/globalStyles';
 import {
   isUrlProhibited,
   normalizeNavigationUrl,
   getDisplayDomain,
   extractDomainName,
+  getOrigin,
 } from './src/utils/urlHelper';
-import { injectNavigate, injectScrollRestore } from './src/utils/webviewNav';
-import { isExternalAppUrl, parseIntentUrl } from './src/utils/externalScheme';
+import { injectNavigate, injectScrollRestore, injectHookCall } from './src/utils/webviewNav';
+import { isExternalAppUrl, isSignInRelayUrl, parseIntentUrl } from './src/utils/externalScheme';
 import { loadDnsCache, checkHost, getCachedVerdict } from './src/utils/dnsFilter';
 import { enforceSafeSearch, needsSafeSearchRedirect } from './src/utils/safeSearch';
 import { STORAGE_KEYS, getJSON, getString, setJSON, setString } from './src/utils/storage';
+import {
+  getDownloadDirectory,
+  chooseDownloadDirectory,
+  describeDownloadDirectory,
+} from './src/utils/downloadStorage';
 
 // Hooks
 import { useTabManager } from './src/hooks/useTabManager';
@@ -80,6 +90,16 @@ function BrowserApp() {
    * otherwise clear the DNS decision on its next run.
    */
   const [dnsBlock, setDnsBlock] = useState<{ url: string; reason: 'filter' | 'unverified' } | null>(null);
+
+  /**
+   * The two tabs each transferred MessagePort connects — see portBridgeJs.
+   * Learned from the postMessage that carried the port, and needed because the
+   * traffic afterwards names only the port, not who is on either end.
+   */
+  const portPairs = useRef<{ [portId: string]: { openerTabId: string; popupTabId: string } }>({});
+
+  /** The folder downloads are exported to, shown in settings so it can be changed. */
+  const [downloadDir, setDownloadDir] = useState<string | null>(null);
 
   // Back navigation & scroll position refs
   const backNavGuard = useRef(false);
@@ -144,6 +164,8 @@ function BrowserApp() {
     isDownloadsOpen,
     setIsDownloadsOpen,
     handleDownloadStart,
+    saveInPageDownload,
+    openDownload,
     handleClearDownloads,
   } = useDownloadManager(setIsLoading, setLoadProgress);
 
@@ -207,6 +229,8 @@ function BrowserApp() {
 
         const autoBlock = await getString(STORAGE_KEYS.autoBlock);
         if (autoBlock !== null) setAutoBlockEnabled(autoBlock === 'true');
+
+        setDownloadDir(await getDownloadDirectory());
 
         const dnsFilter = await getString(STORAGE_KEYS.dnsFilter);
         if (dnsFilter !== null) setDnsFilterEnabled(dnsFilter === 'true');
@@ -419,11 +443,139 @@ function BrowserApp() {
           // the button simply does nothing. The injected interceptor cancels
           // the click for these URLs, so this cannot open the app twice.
           openExternalUrl(data.url, tabId);
+        } else if (data.url && /^(blob|data):/i.test(data.url)) {
+          // A file the page built and tried to open in a new window. No tab
+          // could load it — only the page that made it can read it back, so
+          // it is sent there to be turned into a download.
+          injectHookCall(webViewRefs.current[tabId], 'window.__wmDeliverDownload', [data.url, '']);
         } else if (data.url && data.type === 'windowOpen' && /^https?:/i.test(data.url)) {
-          handleAddNewTab(undefined, data.url);
+          handleAddNewTab(
+            undefined,
+            data.url,
+            data.popupId ? { tabId, popupId: String(data.popupId) } : undefined
+          );
         }
+      } else if (data.type === 'inPageDownload') {
+        saveInPageDownload(data);
+      } else if (data.type === 'inPageDownloadError') {
+        Alert.alert('ההורדה נכשלה', String(data.error || 'לא ניתן היה לקרוא את הקובץ מהדף.'));
+      } else if (
+        data.type === 'openerPostMessage' ||
+        data.type === 'popupLocation' ||
+        data.type === 'closePopupTab' ||
+        data.type === 'popupPostMessage' ||
+        data.type === 'portMessage'
+      ) {
+        handlePopupBridgeMessage(data, tabId);
       }
     } catch (e) {}
+  };
+
+  /**
+   * Carries a popup tab and the page that opened it the news a real browser
+   * would have given them for free.
+   *
+   * A popup is an ordinary tab here, with no window relationship to its opener,
+   * so a sign-in that ends by posting its result to `window.opener` — or by
+   * having the opener read the popup's final URL — had no way to finish. The
+   * halves are wired up in buildOpenerBridgeJs and INJECTED_JS_BEFORE_CONTENT_LOADED.
+   */
+  /** Records which two tabs a transferred port joins, for routing its traffic. */
+  const rememberPorts = (portIds: unknown, openerTabId: string, popupTabId: string) => {
+    if (!Array.isArray(portIds)) return;
+    for (const portId of portIds) {
+      portPairs.current[String(portId)] = { openerTabId, popupTabId };
+    }
+  };
+
+  const handlePopupBridgeMessage = (data: any, tabId: string) => {
+    const senderTab = tabs.find(t => t.id === tabId);
+    if (!senderTab) return;
+
+    // Every message but these travels child → opener. Here the opener is the
+    // sender and the popup is whichever tab carries the handle's id.
+    if (data.type === 'popupPostMessage') {
+      const child = tabs.find(t => t.popupId === String(data.popupId));
+      if (!child || child.openerTabId !== tabId) return;
+      rememberPorts(data.portIds, tabId, child.id);
+      injectHookCall(webViewRefs.current[child.id], 'window.__wmDeliverToPopup', [
+        data.message,
+        getOrigin(senderTab.url),
+        data.portIds || [],
+      ]);
+      return;
+    }
+
+    // Traffic over a MessageChannel whose two ends live in different tabs — see
+    // portBridgeJs. The pairing was recorded when the port was transferred, so
+    // all this has to do is send the message to whichever end did not send it.
+    if (data.type === 'portMessage') {
+      const pair = portPairs.current[String(data.portId)];
+      if (!pair) return;
+      const otherTabId = tabId === pair.openerTabId ? pair.popupTabId : pair.openerTabId;
+      injectHookCall(webViewRefs.current[otherTabId], 'window.__wmPortMessage', [
+        String(data.portId),
+        data.message,
+      ]);
+      return;
+    }
+
+    // Closing runs in both directions — the popup calling window.close() on
+    // itself, and the opener calling close() on the handle it is holding — so
+    // the tab to close is the one owning the id, provided the sender is either
+    // that tab or its opener.
+    if (data.type === 'closePopupTab') {
+      const target = tabs.find(
+        t =>
+          t.popupId === String(data.popupId) &&
+          (t.id === tabId || t.openerTabId === tabId)
+      );
+      if (target) closeTabNotifyingOpener(target.id);
+      return;
+    }
+
+    // The rest only mean anything coming from a popup that still has an opener.
+    if (!senderTab.openerTabId || !senderTab.popupId) return;
+    const openerRef = webViewRefs.current[senderTab.openerTabId];
+    if (!openerRef) return;
+
+    if (data.type === 'openerPostMessage') {
+      // The origin is taken from the URL the sending tab is actually on, never
+      // from anything the page supplied. Checking `event.origin` before
+      // trusting a message is the entire point of the check, so the sender
+      // must not be the one who gets to answer it.
+      rememberPorts(data.portIds, senderTab.openerTabId, senderTab.id);
+      injectHookCall(openerRef, 'window.__wmPopupEvent', [
+        senderTab.popupId,
+        data.message,
+        getOrigin(senderTab.url),
+        data.portIds || [],
+      ]);
+    } else if (data.type === 'popupLocation') {
+      injectHookCall(openerRef, 'window.__wmPopupLocation', [
+        senderTab.popupId,
+        String(data.href || ''),
+      ]);
+    }
+  };
+
+  /**
+   * The opener bridge is added only for a tab that really was opened by
+   * `window.open`. Giving every tab a fake `window.opener` would change how
+   * ordinary pages behave — plenty of them branch on whether one exists.
+   */
+  const buildBeforeContentJs = (tab: BrowserTab): string =>
+    tab.popupId
+      ? INJECTED_JS_BEFORE_CONTENT_LOADED + buildOpenerBridgeJs(tab.popupId)
+      : INJECTED_JS_BEFORE_CONTENT_LOADED;
+
+  /** Closes a tab and tells its opener the popup handle is now closed. */
+  const closeTabNotifyingOpener = (tabId: string) => {
+    const tab = tabs.find(t => t.id === tabId);
+    if (tab && tab.openerTabId && tab.popupId) {
+      injectHookCall(webViewRefs.current[tab.openerTabId], 'window.__wmPopupClosed', [tab.popupId]);
+    }
+    handleCloseTab(tabId);
   };
 
   /**
@@ -473,6 +625,26 @@ function BrowserApp() {
 
   const handleShouldStartLoadWithRequest = (request: any, tabId: string): boolean => {
     const { url } = request;
+
+    // A popup's opener reads the URL the sign-in finally landed on straight off
+    // the handle window.open gave it, so every navigation this tab attempts has
+    // to be reported — including one that is refused just below. That refused
+    // URL is routinely the very answer the opener is waiting for, and a
+    // navigation that never loads would otherwise never report itself.
+    const requestingTab = tabs.find(t => t.id === tabId);
+    if (requestingTab && requestingTab.openerTabId && requestingTab.popupId && request.isTopFrame !== false) {
+      injectHookCall(webViewRefs.current[requestingTab.openerTabId], 'window.__wmPopupLocation', [
+        requestingTab.popupId,
+        url,
+      ]);
+    }
+
+    // Nothing can render or open one of these, and treating it as an app
+    // hand-off is what stalls the sign-in — see isSignInRelayUrl. Reporting it
+    // above is the whole of the work; the navigation itself goes nowhere.
+    if (isSignInRelayUrl(url)) {
+      return false;
+    }
 
     // Top-frame data: navigations are refused outright — same as Chrome does.
     // isUrlProhibited only inspects the URL text, so a page could navigate to
@@ -650,7 +822,7 @@ function BrowserApp() {
             webViewRefs={webViewRefs}
             viewRefs={viewRefs}
             injectedJavaScript={INJECTED_JAVASCRIPT}
-            injectedJavaScriptBeforeContentLoaded={INJECTED_JS_BEFORE_CONTENT_LOADED}
+            buildInjectedJavaScriptBeforeContentLoaded={buildBeforeContentJs}
             onMessage={handleMessage}
             onNavigationStateChange={handleNavigationStateChange}
             onShouldStartLoadWithRequest={handleShouldStartLoadWithRequest}
@@ -690,6 +862,11 @@ function BrowserApp() {
             handleAddBlacklist={handleAddBlacklist}
             handleRemoveBlacklist={handleRemoveBlacklist}
             openChangePinModal={() => openPinModal('change_current')}
+            downloadDirLabel={describeDownloadDirectory(downloadDir)}
+            onChooseDownloadDir={async () => {
+              const chosen = await chooseDownloadDirectory();
+              if (chosen) setDownloadDir(chosen);
+            }}
             handleClose={() => setIsSettingsOpen(false)}
           />
         )}
@@ -731,7 +908,7 @@ function BrowserApp() {
             setActiveTabId(tabId);
             setIsTabSwitcherOpen(false);
           }}
-          handleCloseTab={handleCloseTab}
+          handleCloseTab={closeTabNotifyingOpener}
           handleAddNewTab={() => handleAddNewTab()}
           handleCloseAllTabs={handleCloseAllTabs}
           handleClose={() => setIsTabSwitcherOpen(false)}
@@ -767,6 +944,7 @@ function BrowserApp() {
         <DownloadsModal
           visible={isDownloadsOpen}
           downloads={downloads}
+          onOpenDownload={openDownload}
           handleClearDownloads={handleClearDownloads}
           handleClose={() => setIsDownloadsOpen(false)}
         />

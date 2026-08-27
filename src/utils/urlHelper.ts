@@ -128,6 +128,26 @@ export const extractDomainName = (input: string): string => {
 };
 
 /**
+ * The origin of a URL — "https://www.example.com" for any page on that host.
+ *
+ * Used to stamp `event.origin` on messages relayed between a popup tab and the
+ * page that opened it, so it deliberately keeps the `www.` and the port that
+ * extractDomainName strips: an origin comparison is exact, and a trimmed one
+ * would never match what the page is expecting.
+ */
+export const getOrigin = (url: string): string => {
+  const match = /^([a-z][a-z0-9+.-]*:\/\/[^/?#]+)/i.exec(url.trim());
+  if (!match) return '';
+  const authority = match[1];
+  // Userinfo is not part of an origin and must not be allowed to pose as one.
+  const schemeEnd = authority.indexOf('://') + 3;
+  const scheme = authority.slice(0, schemeEnd).toLowerCase();
+  let host = authority.slice(schemeEnd);
+  if (host.includes('@')) host = host.slice(host.lastIndexOf('@') + 1);
+  return scheme + host.toLowerCase();
+};
+
+/**
  * Standardizes raw input to a valid URL or translates it to a Google search query.
  */
 export const normalizeNavigationUrl = (input: string): string => {
@@ -178,6 +198,26 @@ export const getDisplayDomain = (url: string, isInputFocused: boolean, urlInput:
 /**
  * Guesses the filename and extension for a download based on URL, Content-Disposition, and MIME type.
  */
+/**
+ * Identifies a file from the first bytes of its base64, for downloads that
+ * arrive without a usable type.
+ *
+ * A Blob built by a page often carries no `type`, and with neither type nor a
+ * URL to read an extension from, guessDownloadFilename falls back to `.apk` —
+ * which would have a PDF saved as an app and offered for installation. The
+ * leading bytes of these formats are fixed, so they survive base64 as a fixed
+ * prefix and can be recognised without decoding anything.
+ */
+export const sniffMimeFromBase64 = (base64: string): string | undefined => {
+  const head = base64.slice(0, 8);
+  if (head.startsWith('JVBERi0')) return 'application/pdf';       // %PDF-
+  if (head.startsWith('iVBORw0')) return 'image/png';             // \x89PNG
+  if (head.startsWith('/9j/')) return 'image/jpeg';               // \xFF\xD8\xFF
+  if (head.startsWith('R0lGOD')) return 'image/gif';              // GIF8
+  if (head.startsWith('UEsDB')) return 'application/zip';         // PK\x03\x04
+  return undefined;
+};
+
 export const guessDownloadFilename = (
   url: string,
   contentDisposition?: string,

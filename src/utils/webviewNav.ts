@@ -15,6 +15,36 @@ export const injectNavigate = (ref: WebView | null | undefined, url: string) => 
 };
 
 /**
+ * Calls one of the popup-bridge hooks inside a WebView.
+ *
+ * `fnName` is always a literal from this codebase, never page input. The
+ * arguments are not: they carry whatever a page passed to postMessage, so they
+ * go in as JSON rather than as interpolated text — otherwise a popup could
+ * close the string and run its own code inside the opener's page.
+ *
+ * JSON.stringify leaves U+2028/U+2029 raw, and those are line terminators to
+ * older JS parsers, which would break the injected statement in two.
+ */
+export const injectHookCall = (
+  ref: WebView | null | undefined,
+  fnName: string,
+  args: unknown[]
+) => {
+  if (!ref) return;
+  const encoded = args
+    .map(arg => {
+      const json = JSON.stringify(arg === undefined ? null : arg);
+      return (json === undefined ? 'null' : json)
+        .replace(/\u2028/g, '\\u2028')
+        .replace(/\u2029/g, '\\u2029');
+    })
+    .join(', ');
+  ref.injectJavaScript(
+    `if (typeof ${fnName} === 'function') { ${fnName}(${encoded}); } true;`
+  );
+};
+
+/**
  * Restores a saved scroll position inside a WebView after a blocked
  * navigation is reverted.
  *

@@ -90,7 +90,12 @@ export function useTabManager() {
     recentTabCreations.current.push(Date.now());
   };
 
-  const handleAddNewTab = async (closeMenu?: () => void, urlToOpen?: string) => {
+  const handleAddNewTab = async (
+    closeMenu?: () => void,
+    urlToOpen?: string,
+    /** Present only when the tab is a `window.open` popup rather than one the user asked for. */
+    opener?: { tabId: string; popupId: string }
+  ) => {
     if (closeMenu) closeMenu();
 
     // User-initiated: bypass rate-limit but still enforce hard cap
@@ -109,9 +114,11 @@ export function useTabManager() {
       canGoBack: false,
       canGoForward: false,
       lastActiveAt: Date.now(),
+      openerTabId: opener ? opener.tabId : undefined,
+      popupId: opener ? opener.popupId : undefined,
     };
     // Track parent so hardware back closes this tab and returns to parent
-    tabParentMap.current[newId] = activeTabId;
+    tabParentMap.current[newId] = opener ? opener.tabId : activeTabId;
     recordTabCreation();
     setTabs(prev => [...prev, newTab]);
     setActiveTabId(newId);

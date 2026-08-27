@@ -50,10 +50,27 @@ export const getUrlScheme = (url: string): string => {
  */
 const OWN_SCHEMES = ['http', 'https', 'about', 'data', 'blob', 'javascript', 'file'];
 
+/**
+ * Schemes a sign-in popup is *redirected to* as a way of announcing its result,
+ * with no app behind them and nothing to render.
+ *
+ * `storagerelay:` is the one Google's popup OAuth flow uses: the popup is sent
+ * to `storagerelay://https/site.com?id=auth…` carrying the credential, and the
+ * page that opened the popup reads it back off the handle's location. Handing
+ * one of these to the OS as though it were an app is what kills the sign-in —
+ * nothing can open it, and the opener never gets to see the URL it was waiting
+ * for.
+ */
+const SIGN_IN_RELAY_SCHEMES = ['storagerelay'];
+
+/** True when the URL is a sign-in flow announcing its result, not a destination. */
+export const isSignInRelayUrl = (url: string): boolean =>
+  SIGN_IN_RELAY_SCHEMES.includes(getUrlScheme(url));
+
 /** True when the URL is a hand-off to another app rather than a page to load. */
 export const isExternalAppUrl = (url: string): boolean => {
   const scheme = getUrlScheme(url);
-  return scheme !== '' && !OWN_SCHEMES.includes(scheme);
+  return scheme !== '' && !OWN_SCHEMES.includes(scheme) && !SIGN_IN_RELAY_SCHEMES.includes(scheme);
 };
 
 /**
