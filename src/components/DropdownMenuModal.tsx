@@ -24,6 +24,7 @@ interface DropdownMenuModalProps {
   onOpenHistory: () => void;
   onOpenBookmarks: () => void;
   onOpenDownloads: () => void;
+  onClearCache: () => void;
   onQuickBlockSite: () => void;
   onOpenSettings: () => void;
 }
@@ -41,6 +42,7 @@ export default function DropdownMenuModal({
   onOpenHistory,
   onOpenBookmarks,
   onOpenDownloads,
+  onClearCache,
   onQuickBlockSite,
   onOpenSettings,
 }: DropdownMenuModalProps) {
@@ -183,6 +185,18 @@ export default function DropdownMenuModal({
           >
             <Ionicons name="download-outline" size={22} color={COLORS.greyDark} />
             <Text style={styles.menuItemText}>הורדות</Text>
+          </TouchableOpacity>
+
+          {/* Clear Cache */}
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => {
+              onClose();
+              onClearCache();
+            }}
+          >
+            <Ionicons name="trash-outline" size={22} color={COLORS.greyDark} />
+            <Text style={styles.menuItemText}>נקה מטמון</Text>
           </TouchableOpacity>
 
           <View style={styles.menuDivider} />

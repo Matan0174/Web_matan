@@ -354,6 +354,16 @@ function BrowserApp() {
     } catch (e) {}
   };
 
+  const handleClearCache = () => {
+    setIsMenuOpen(false);
+    const activeRef = webViewRefs.current[activeTabId];
+    if (activeRef) {
+      (activeRef as any).clearCache?.(true);
+      activeRef.reload();
+      Alert.alert('מטמון נוקה', 'המטמון של הדף נוקה בהצלחה.');
+    }
+  };
+
   // Back button handling on Android
   useEffect(() => {
     const onBackPress = () => {
@@ -808,6 +818,7 @@ function BrowserApp() {
         onOpenHistory={() => setIsHistoryOpen(true)}
         onOpenBookmarks={() => setIsBookmarksOpen(true)}
         onOpenDownloads={() => setIsDownloadsOpen(true)}
+        onClearCache={handleClearCache}
         onQuickBlockSite={() => handleQuickBlockSite(activeTab.url, () => setIsMenuOpen(false))}
         onOpenSettings={() => openPinModal('verify', () => setIsMenuOpen(false))}
       />
