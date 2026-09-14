@@ -144,8 +144,8 @@ export default function SettingsScreen({
             {blacklist.length === 0 ? (
               <Text style={styles.emptyBlacklistText}>אין אתרים חסומים ידנית.</Text>
             ) : (
-              blacklist.map((item, idx) => (
-                <View key={idx} style={styles.blacklistRow}>
+              blacklist.map(item => (
+                <View key={item} style={styles.blacklistRow}>
                   <Text style={styles.blacklistDomainText}>{item}</Text>
                   <TouchableOpacity
                     onPress={() => handleRemoveBlacklist(item)}

@@ -114,18 +114,22 @@ function parseResponse(b: Uint8Array): DnsResponse | null {
   p += 5;
 
   const addresses: string[] = [];
-  for (let i = 0; i < answerCount && p + 12 <= b.length; i++) {
+  for (let i = 0; i < answerCount; i++) {
     // A name is either a pointer (top two bits set) or a label sequence.
+    if (p >= b.length) break;
     if ((b[p] & 0xc0) === 0xc0) {
       p += 2;
     } else {
       while (p < b.length && b[p] !== 0) p += b[p] + 1;
       p += 1;
     }
+    // type(2) + class(2) + ttl(4) + rdlength(2) must all be present.
+    if (p + 10 > b.length) break;
     const type = (b[p] << 8) | b[p + 1];
     p += 8; // type, class, ttl
     const rdLength = (b[p] << 8) | b[p + 1];
     p += 2;
+    if (p + rdLength > b.length) break;
     if (type === 1 && rdLength === 4) {
       addresses.push(`${b[p]}.${b[p + 1]}.${b[p + 2]}.${b[p + 3]}`);
     }

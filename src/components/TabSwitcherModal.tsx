@@ -5,10 +5,12 @@ import {
   View,
   Modal,
   TouchableOpacity,
-  ScrollView,
+  FlatList,
   Image,
+  Dimensions,
+  useWindowDimensions,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, TAB_SHADOW } from '../styles/globalStyles';
 
@@ -78,13 +80,23 @@ export default function TabSwitcherModal({
   getDisplayDomain,
   isUrlBlocked,
 }: TabSwitcherModalProps) {
+  const { width, height } = useWindowDimensions();
+  const tabWidth = (width - 30) / 2;
+
   return (
     <Modal
       visible={visible}
       animationType="slide"
       onRequestClose={handleClose}
     >
-      <SafeAreaView style={styles.switcherContainer}>
+      {/* The height is pinned explicitly rather than left to `flex: 1`: inside a
+          Modal the container is not bounded by the screen, so the grid grew to
+          its own content height, pushed the footer off the bottom and left the
+          list believing it had nothing to scroll.
+          The provider is what the safe-area insets are read from — a Modal
+          renders in its own native hierarchy and does not inherit the app's. */}
+      <SafeAreaProvider>
+        <SafeAreaView style={[styles.switcherContainer, { height }]}>
         {/* Header */}
         <View style={styles.switcherHeader}>
           <TouchableOpacity
@@ -102,73 +114,78 @@ export default function TabSwitcherModal({
         </View>
 
         {/* Tab Grid */}
-        <ScrollView
-          contentContainerStyle={styles.switcherGrid}
+        <FlatList
+          style={styles.switcherScrollView}
+          data={tabs}
+          keyExtractor={tab => tab.id}
+          numColumns={2}
+          columnWrapperStyle={styles.switcherRow}
+          contentContainerStyle={styles.switcherGridContainer}
           showsVerticalScrollIndicator={false}
-        >
-          {tabs.map(tab => {
-            const isActive = tab.id === activeTabId;
-            const domain = getDisplayDomain(tab.url);
-            return (
-              <TouchableOpacity
-                key={tab.id}
-                style={[
-                  styles.tabCard,
-                  isActive && styles.tabCardActive,
-                ]}
-                onPress={() => handleSelectTab(tab.id)}
-                activeOpacity={0.85}
-              >
-                {/* Tab Card Header — with favicon placeholder + title + close */}
-                <View style={[
-                  styles.tabCardHeader,
-                  isActive && styles.tabCardHeaderActive,
-                ]}>
-                  <View style={styles.tabCardHeaderLeft}>
-                    <View style={styles.faviconContainer}>
-                      <Ionicons
-                        name="globe-outline"
-                        size={14}
-                        color={isActive ? COLORS.blueAccent : COLORS.textLight}
+          renderItem={({ item: tab }) => {
+              const isActive = tab.id === activeTabId;
+              const domain = getDisplayDomain(tab.url);
+              return (
+                <TouchableOpacity
+                  style={[
+                    styles.tabCard,
+                    { width: tabWidth },
+                    isActive && styles.tabCardActive,
+                  ]}
+                  onPress={() => handleSelectTab(tab.id)}
+                  activeOpacity={0.85}
+                  delayPressIn={100}
+                >
+                  {/* Tab Card Header — with favicon placeholder + title + close */}
+                  <View style={[
+                    styles.tabCardHeader,
+                    isActive && styles.tabCardHeaderActive,
+                  ]}>
+                    <View style={styles.tabCardHeaderLeft}>
+                      <View style={styles.faviconContainer}>
+                        <Ionicons
+                          name="globe-outline"
+                          size={14}
+                          color={isActive ? COLORS.blueAccent : COLORS.textLight}
+                        />
+                      </View>
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          styles.tabCardTitle,
+                          isActive && styles.tabCardTitleActive,
+                        ]}
+                      >
+                        {tab.title || domain}
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => handleCloseTab(tab.id)}
+                      style={styles.tabCardCloseBtn}
+                      hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                    >
+                      <Ionicons name="close" size={16} color={COLORS.greyDark} />
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Tab Card Body — page preview */}
+                  <View style={styles.tabCardBody}>
+                    <View style={styles.pagePreview}>
+                      <TabPreview
+                        url={tab.url}
+                        screenshotUri={tab.screenshotUri}
+                        isBlocked={isUrlBlocked(tab.url)}
+                        isActive={isActive}
                       />
                     </View>
-                    <Text
-                      numberOfLines={1}
-                      style={[
-                        styles.tabCardTitle,
-                        isActive && styles.tabCardTitleActive,
-                      ]}
-                    >
-                      {tab.title || domain}
+                    <Text numberOfLines={1} style={styles.tabCardUrl}>
+                      {tab.url.replace(/^https?:\/\/(www\.)?/i, '')}
                     </Text>
                   </View>
-                  <TouchableOpacity
-                    onPress={() => handleCloseTab(tab.id)}
-                    style={styles.tabCardCloseBtn}
-                    hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                  >
-                    <Ionicons name="close" size={16} color={COLORS.greyDark} />
-                  </TouchableOpacity>
-                </View>
-
-                {/* Tab Card Body — page preview */}
-                <View style={styles.tabCardBody}>
-                  <View style={styles.pagePreview}>
-                    <TabPreview
-                      url={tab.url}
-                      screenshotUri={tab.screenshotUri}
-                      isBlocked={isUrlBlocked(tab.url)}
-                      isActive={isActive}
-                    />
-                  </View>
-                  <Text numberOfLines={1} style={styles.tabCardUrl}>
-                    {tab.url.replace(/^https?:\/\/(www\.)?/i, '')}
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
+                </TouchableOpacity>
+              );
+            }}
+        />
 
         {/* Footer */}
         <View style={styles.switcherFooter}>
@@ -188,7 +205,8 @@ export default function TabSwitcherModal({
             <Text style={styles.switcherNewTabText}>כרטיסייה חדשה</Text>
           </TouchableOpacity>
         </View>
-      </SafeAreaView>
+        </SafeAreaView>
+      </SafeAreaProvider>
     </Modal>
   );
 }
@@ -196,6 +214,7 @@ export default function TabSwitcherModal({
 const styles = StyleSheet.create({
   switcherContainer: {
     flex: 1,
+    overflow: 'hidden',
     backgroundColor: COLORS.surfaceGrey,
   },
   switcherHeader: {
@@ -220,14 +239,18 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: COLORS.textDark,
   },
-  switcherGrid: {
+  switcherScrollView: {
+    flex: 1,
+  },
+  switcherGridContainer: {
     padding: 10,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    paddingBottom: 40,
+  },
+  switcherRow: {
     justifyContent: 'space-between',
+    alignItems: 'flex-start',
   },
   tabCard: {
-    width: '48%',
     height: 195,
     backgroundColor: COLORS.white,
     borderRadius: 12,

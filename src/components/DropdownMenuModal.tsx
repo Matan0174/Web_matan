@@ -66,7 +66,7 @@ export default function DropdownMenuModal({
             <TouchableOpacity
               onPress={() => {
                 onClose();
-                onGoForward();
+                onGoBack();
               }}
               style={styles.navBtn}
               activeOpacity={0.6}
@@ -80,7 +80,7 @@ export default function DropdownMenuModal({
             <TouchableOpacity
               onPress={() => {
                 onClose();
-                onGoBack();
+                onGoForward();
               }}
               style={styles.navBtn}
               activeOpacity={0.6}

@@ -8,7 +8,6 @@ import {
   Animated,
   Share,
   Platform,
-  FlatList,
   Keyboard,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -56,6 +55,19 @@ export default function ToolbarHeader({
   // Animated progress bar width
   const progressAnim = useRef(new Animated.Value(0)).current;
   const progressOpacity = useRef(new Animated.Value(0)).current;
+  const inputRef = useRef<TextInput>(null);
+
+  /**
+   * Edit mode is driven by the user touching the field, not by Android's focus
+   * events: after a programmatic blur Android hands focus straight back, and an
+   * onFocus-driven flag would put the bar back into edit mode on its own —
+   * leaving it showing the typed text instead of the page that loaded.
+   */
+  useEffect(() => {
+    if (isInputFocused) return;
+    inputRef.current?.blur();
+    Keyboard.dismiss();
+  }, [isInputFocused]);
 
   useEffect(() => {
     if (isLoading) {
@@ -127,10 +139,11 @@ export default function ToolbarHeader({
           )}
 
           <TextInput
+            ref={inputRef}
             style={styles.addressBarInput}
             value={isInputFocused ? urlInput : displayUrl}
             onChangeText={setUrlInput}
-            onFocus={() => setIsInputFocused(true)}
+            onTouchStart={() => setIsInputFocused(true)}
             onBlur={() => setIsInputFocused(false)}
             onSubmitEditing={handleNavigate}
             selectTextOnFocus
@@ -223,24 +236,30 @@ export default function ToolbarHeader({
       {showSuggestions && (
         <View style={styles.suggestionsContainer}>
           {suggestions.map((item, index) => (
-            <TouchableOpacity
+            <View
               key={`${item}-${index}`}
               style={[
                 styles.suggestionRow,
                 index === suggestions.length - 1 && styles.suggestionRowLast,
               ]}
-              onPress={() => onSelectSuggestion?.(item)}
-              activeOpacity={0.6}
             >
-              <Ionicons
-                name="search-outline"
-                size={16}
-                color={COLORS.textLight}
-                style={styles.suggestionIcon}
-              />
-              <Text style={styles.suggestionText} numberOfLines={1}>
-                {item}
-              </Text>
+              {/* Kept as siblings rather than nested: a TouchableOpacity inside
+                  another one never receives the press on Android. */}
+              <TouchableOpacity
+                style={styles.suggestionMain}
+                onPress={() => onSelectSuggestion?.(item)}
+                activeOpacity={0.6}
+              >
+                <Ionicons
+                  name="search-outline"
+                  size={16}
+                  color={COLORS.textLight}
+                  style={styles.suggestionIcon}
+                />
+                <Text style={styles.suggestionText} numberOfLines={1}>
+                  {item}
+                </Text>
+              </TouchableOpacity>
               {/* Arrow to fill suggestion into input */}
               <TouchableOpacity
                 onPress={() => setUrlInput(item)}
@@ -249,7 +268,7 @@ export default function ToolbarHeader({
               >
                 <Ionicons name="arrow-up-outline" size={16} color={COLORS.textLight} style={{ transform: [{ rotate: '-45deg' }] }} />
               </TouchableOpacity>
-            </TouchableOpacity>
+            </View>
           ))}
         </View>
       )}
@@ -355,6 +374,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: COLORS.divider,
+  },
+  suggestionMain: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   suggestionRowLast: {
     borderBottomWidth: 0,

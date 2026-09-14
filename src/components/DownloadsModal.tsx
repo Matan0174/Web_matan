@@ -1,6 +1,6 @@
 import React from 'react';
-import { StyleSheet, Text, View, Modal, TouchableOpacity, ScrollView } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { StyleSheet, Text, View, Modal, TouchableOpacity, ScrollView, useWindowDimensions } from 'react-native';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../styles/globalStyles';
 import { DownloadItem } from '../types/browser';
@@ -21,13 +21,18 @@ export default function DownloadsModal({
   handleClearDownloads,
   handleClose,
 }: DownloadsModalProps) {
+  const { height } = useWindowDimensions();
   return (
     <Modal
       visible={visible}
       animationType="slide"
       onRequestClose={handleClose}
     >
-      <SafeAreaView style={styles.downloadsContainer}>
+      {/* Pinned height, not `flex: 1`: inside a Modal the container is not
+          bounded by the screen and a long list grows past it instead of
+          scrolling. */}
+      <SafeAreaProvider>
+        <SafeAreaView style={[styles.downloadsContainer, { height }]}>
         <View style={styles.downloadsHeader}>
           <TouchableOpacity
             onPress={handleClose}
@@ -78,7 +83,8 @@ export default function DownloadsModal({
             ))
           )}
         </ScrollView>
-      </SafeAreaView>
+        </SafeAreaView>
+      </SafeAreaProvider>
     </Modal>
   );
 }

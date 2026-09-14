@@ -7,12 +7,13 @@ import {
   Modal,
   FlatList,
   Alert,
+  useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../styles/globalStyles';
 
 import { BookmarkItem } from '../types/browser';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 export type { BookmarkItem };
 
@@ -44,6 +45,8 @@ export default function BookmarksModal({
   handleRemoveBookmark,
   handleClose,
 }: BookmarksModalProps) {
+  const { height } = useWindowDimensions();
+
   const confirmRemove = (id: string, title: string) => {
     Alert.alert(
       'מחיקת סימנייה',
@@ -92,7 +95,11 @@ export default function BookmarksModal({
       animationType="slide"
       onRequestClose={handleClose}
     >
-      <SafeAreaView style={styles.container}>
+      {/* Pinned height, not `flex: 1`: inside a Modal the container is not
+          bounded by the screen and a long list grows past it instead of
+          scrolling. */}
+      <SafeAreaProvider>
+        <SafeAreaView style={[styles.container, { height }]}>
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={handleClose} style={styles.backBtn}>
@@ -118,7 +125,8 @@ export default function BookmarksModal({
             showsVerticalScrollIndicator={false}
           />
         )}
-      </SafeAreaView>
+        </SafeAreaView>
+      </SafeAreaProvider>
     </Modal>
   );
 }

@@ -37,6 +37,7 @@ import { isExternalAppUrl, isSignInRelayUrl, parseIntentUrl } from './src/utils/
 import { loadDnsCache, checkHost, getCachedVerdict } from './src/utils/dnsFilter';
 import { enforceSafeSearch, needsSafeSearchRedirect } from './src/utils/safeSearch';
 import { STORAGE_KEYS, getJSON, getString, setJSON, setString } from './src/utils/storage';
+import * as Updates from 'expo-updates';
 import {
   getDownloadDirectory,
   chooseDownloadDirectory,
@@ -169,10 +170,40 @@ function BrowserApp() {
     handleClearDownloads,
   } = useDownloadManager(setIsLoading, setLoadProgress);
 
+  /**
+   * Loads `target` in the active tab, keeping the back stack intact.
+   *
+   * The navigation is driven through the WebView's `source` prop rather than
+   * an injected `window.location.href`: a script navigation in a document that
+   * has not received a user gesture *replaces* the current history entry
+   * instead of pushing one, so typing an address used to wipe the back stack
+   * (canGoBack stayed false and Back left the app). `source` goes through the
+   * native loadUrl, which pushes normally.
+   */
+  const loadInActiveTab = (target: string) => {
+    setIsCurrentUrlBlocked(false);
+    setUrlInput(target);
+    setIsInputFocused(false);
+
+    const current = tabs.find(t => t.id === activeTabId);
+    if (current && current.initialUrl === target) {
+      // The prop would not change, so nothing would load — nudge it in-page.
+      injectNavigate(webViewRefs.current[activeTabId], target);
+      return;
+    }
+
+    // `url` is set optimistically so the address bar shows the destination at
+    // once; handleNavigationStateChange corrects it once the page settles.
+    setTabs(prev =>
+      prev.map(t => (t.id === activeTabId ? { ...t, url: target, initialUrl: target } : t))
+    );
+  };
+
   const navigateTo = (url: string) => {
     let target = url.trim();
     if (!target) return;
 
+    setIsInputFocused(false);
     target = normalizeNavigationUrl(target);
     if (autoBlockEnabled) target = enforceSafeSearch(target);
 
@@ -183,13 +214,7 @@ function BrowserApp() {
       );
       setIsCurrentUrlBlocked(true);
     } else {
-      // Do NOT update tab.url via setTabs here — changing the source prop
-      // replaces the WebView's navigation stack and kills back history.
-      // Instead, navigate via injectJavaScript (preserves back history)
-      // and let handleNavigationStateChange update tab.url after page loads.
-      setIsCurrentUrlBlocked(false);
-      setUrlInput(target);
-      injectNavigate(webViewRefs.current[activeTabId], target);
+      loadInActiveTab(target);
     }
   };
 
@@ -243,21 +268,21 @@ function BrowserApp() {
         const parsedTabs = await getJSON<any[] | null>(STORAGE_KEYS.tabs, null);
         const savedActiveTabId = await getString(STORAGE_KEYS.activeTabId);
         if (parsedTabs && parsedTabs.length > 0) {
-          // Migrate old saved tabs that lack the initialUrl / lastActiveAt fields
+          // Every tab remounts on a cold start, so it has to resume at the page
+          // it was left on rather than the address it was originally opened at.
           const migratedTabs: BrowserTab[] = parsedTabs.map((t: any) => ({
             ...t,
-            initialUrl: t.initialUrl || t.url,
+            initialUrl: t.url || t.initialUrl,
             lastActiveAt: t.lastActiveAt || Date.now(),
           }));
           setTabs(migratedTabs);
-          if (savedActiveTabId) {
-            setActiveTabId(savedActiveTabId);
-            const active = parsedTabs.find((t: any) => t.id === savedActiveTabId) || parsedTabs[0];
-            setUrlInput(active.url);
-          } else {
-            setActiveTabId(parsedTabs[0].id);
-            setUrlInput(parsedTabs[0].url);
-          }
+          // A saved id that no longer names a tab would leave every tab hidden
+          // and the screen blank, so it is only honoured when it still exists.
+          const active =
+            (savedActiveTabId && parsedTabs.find((t: any) => t.id === savedActiveTabId)) ||
+            parsedTabs[0];
+          setActiveTabId(active.id);
+          setUrlInput(active.url);
         }
       } catch (e) {
         console.error('Failed to load settings from storage', e);
@@ -274,6 +299,27 @@ function BrowserApp() {
     setJSON(STORAGE_KEYS.tabs, tabs);
     setString(STORAGE_KEYS.activeTabId, activeTabId);
   }, [tabs, activeTabId, hasLoadedFromStorage]);
+
+  // Drop the per-tab state of tabs that have been closed — otherwise refs,
+  // scroll positions and port pairings accumulate for the life of the app.
+  useEffect(() => {
+    const live = new Set(tabs.map(t => t.id));
+    for (const id of Object.keys(webViewRefs.current)) {
+      if (!live.has(id)) delete webViewRefs.current[id];
+    }
+    for (const id of Object.keys(viewRefs.current)) {
+      if (!live.has(id)) delete viewRefs.current[id];
+    }
+    for (const id of Object.keys(scrollPositions.current)) {
+      if (!live.has(id)) delete scrollPositions.current[id];
+    }
+    for (const portId of Object.keys(portPairs.current)) {
+      const pair = portPairs.current[portId];
+      if (!live.has(pair.openerTabId) || !live.has(pair.popupTabId)) {
+        delete portPairs.current[portId];
+      }
+    }
+  }, [tabs]);
 
   useDeepLinking({
     tabs,
@@ -315,8 +361,25 @@ function BrowserApp() {
     }
   }, [activeTabId, blacklist, autoBlockEnabled, activeTab.url, isInputFocused, isSettingsOpen, dnsBlock, dnsFilterEnabled]);
 
+  // allowRTL only takes hold on the next launch, so on a Hebrew device the
+  // very first run after install comes up mirrored. One restart settles it;
+  // the stored flag is what keeps that from becoming a restart loop.
+  useEffect(() => {
+    if (!I18nManager.isRTL) return;
+    (async () => {
+      if (await getString(STORAGE_KEYS.rtlFixed)) return;
+      await setString(STORAGE_KEYS.rtlFixed, 'true');
+      I18nManager.allowRTL(false);
+      I18nManager.forceRTL(false);
+      try {
+        await Updates.reloadAsync();
+      } catch (e) {}
+    })();
+  }, []);
+
   const handleGoHome = () => {
     setDnsBlock(null);
+    setIsInputFocused(false);
     if (isCurrentUrlBlocked) {
       setIsCurrentUrlBlocked(false);
       const activeRef = webViewRefs.current[activeTabId];
@@ -331,9 +394,7 @@ function BrowserApp() {
       }
     } else {
       // Normal Home button clicked from Toolbar
-      setIsCurrentUrlBlocked(false);
-      setUrlInput(DEFAULT_URL);
-      injectNavigate(webViewRefs.current[activeTabId], DEFAULT_URL);
+      loadInActiveTab(DEFAULT_URL);
     }
   };
 
@@ -799,7 +860,10 @@ function BrowserApp() {
         handleNavigate={() => navigateTo(urlInput)}
         handleOpenMenu={() => setIsMenuOpen(true)}
         handleOpenTabSwitcher={handleOpenTabSwitcher}
-        handleAddNewTab={() => handleAddNewTab()}
+        handleAddNewTab={() => {
+          setIsInputFocused(false);
+          handleAddNewTab();
+        }}
         suggestions={suggestions}
         onSelectSuggestion={handleSelectSuggestion}
       />

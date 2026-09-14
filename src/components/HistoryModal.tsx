@@ -7,12 +7,13 @@ import {
   Modal,
   FlatList,
   Alert,
+  useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, DROPDOWN_SHADOW } from '../styles/globalStyles';
 
 import { HistoryItem } from '../types/browser';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 export type { HistoryItem };
 
@@ -64,6 +65,8 @@ export default function HistoryModal({
   handleClearHistory,
   handleClose,
 }: HistoryModalProps) {
+  const { height } = useWindowDimensions();
+
   const confirmClear = () => {
     Alert.alert(
       'מחיקת היסטוריה',
@@ -106,7 +109,11 @@ export default function HistoryModal({
       animationType="slide"
       onRequestClose={handleClose}
     >
-      <SafeAreaView style={styles.container}>
+      {/* Pinned height, not `flex: 1`: inside a Modal the container is not
+          bounded by the screen and a long list grows past it instead of
+          scrolling. */}
+      <SafeAreaProvider>
+        <SafeAreaView style={[styles.container, { height }]}>
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={handleClose} style={styles.backBtn}>
@@ -138,7 +145,8 @@ export default function HistoryModal({
             showsVerticalScrollIndicator={false}
           />
         )}
-      </SafeAreaView>
+        </SafeAreaView>
+      </SafeAreaProvider>
     </Modal>
   );
 }

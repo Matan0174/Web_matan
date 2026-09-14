@@ -4,9 +4,12 @@ import { Keyboard } from 'react-native';
 export function useSearchSuggestions(urlInput: string, isInputFocused: boolean, onNavigate: (url: string) => void, setUrlInput: (url: string) => void) {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const suggestionsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Identifies the newest request, so a slower earlier one cannot overwrite it. */
+  const requestSeq = useRef(0);
 
   const fetchSuggestions = useCallback((query: string) => {
     if (suggestionsTimer.current) clearTimeout(suggestionsTimer.current);
+    const requestId = ++requestSeq.current;
 
     if (!query || query.length < 2) {
       setSuggestions([]);
@@ -26,15 +29,24 @@ export function useSearchSuggestions(urlInput: string, isInputFocused: boolean, 
         );
         const text = await response.text();
         const parsed = JSON.parse(text);
-        // Google returns: [query, [suggestions], ...]  
-        if (Array.isArray(parsed) && Array.isArray(parsed[1])) {
-          setSuggestions(parsed[1].slice(0, 6));
-        }
+        if (requestId !== requestSeq.current) return;
+        // Google returns: [query, [suggestions], ...]
+        setSuggestions(
+          Array.isArray(parsed) && Array.isArray(parsed[1]) ? parsed[1].slice(0, 6) : []
+        );
       } catch (e) {
         // Silently fail - suggestions are not critical
+        if (requestId === requestSeq.current) setSuggestions([]);
       }
     }, 250); // 250ms debounce
   }, []);
+
+  useEffect(
+    () => () => {
+      if (suggestionsTimer.current) clearTimeout(suggestionsTimer.current);
+    },
+    []
+  );
 
   const handleSelectSuggestion = (suggestion: string) => {
     setSuggestions([]);

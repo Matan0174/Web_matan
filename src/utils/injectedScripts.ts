@@ -536,7 +536,7 @@ export const INJECTED_JS_BEFORE_CONTENT_LOADED = `
     // forced by rewriting the address. f2=8000000 is the flag Restricted Mode
     // sets in YouTube's own PREF cookie.
     try {
-      if (/(^|\.)youtube\.com$/.test(location.hostname)) {
+      if (/(^|\\.)youtube\\.com$/.test(location.hostname)) {
         document.cookie = 'PREF=f2=8000000; domain=.youtube.com; path=/; max-age=31536000';
       }
     } catch(e) {}
