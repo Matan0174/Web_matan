@@ -196,6 +196,34 @@ export const getDisplayDomain = (url: string, isInputFocused: boolean, urlInput:
 };
 
 /**
+ * Address-bar text, Chrome style: scheme and a leading "www." are stripped but the
+ * path is kept, so the user can still see where in the site they are.
+ */
+export const getAddressBarUrl = (url: string, isInputFocused: boolean, urlInput: string): string => {
+  if (isInputFocused) {
+    try {
+      return decodeURIComponent(urlInput);
+    } catch {
+      return urlInput;
+    }
+  }
+  try {
+    let text = url;
+    if (text.includes('://')) {
+      text = text.split('://')[1];
+    }
+    text = text.replace(/^www\./i, '').replace(/\/$/, '');
+    try {
+      return decodeURIComponent(text);
+    } catch {
+      return text;
+    }
+  } catch {
+    return url;
+  }
+};
+
+/**
  * Guesses the filename and extension for a download based on URL, Content-Disposition, and MIME type.
  */
 /**

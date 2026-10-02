@@ -29,6 +29,7 @@ import {
   isUrlProhibited,
   normalizeNavigationUrl,
   getDisplayDomain,
+  getAddressBarUrl,
   extractDomainName,
   getOrigin,
 } from './src/utils/urlHelper';
@@ -83,6 +84,7 @@ function BrowserApp() {
   const [loadProgress, setLoadProgress] = useState(0);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isDesktopSite, setIsDesktopSite] = useState(false);
 
   /**
    * A non-'allowed' verdict from the DNS filter, tagged with the URL it was
@@ -848,7 +850,7 @@ function BrowserApp() {
       <ToolbarHeader
         urlInput={urlInput}
         setUrlInput={setUrlInput}
-        displayUrl={getDisplayDomain(activeTab.url, isInputFocused, urlInput)}
+        displayUrl={getAddressBarUrl(activeTab.url, isInputFocused, urlInput)}
         isHttps={isHttps}
         isInputFocused={isInputFocused}
         setIsInputFocused={setIsInputFocused}
@@ -885,6 +887,15 @@ function BrowserApp() {
         onClearCache={handleClearCache}
         onQuickBlockSite={() => handleQuickBlockSite(activeTab.url, () => setIsMenuOpen(false))}
         onOpenSettings={() => openPinModal('verify', () => setIsMenuOpen(false))}
+        onAddNewTab={() => {
+          setIsInputFocused(false);
+          handleAddNewTab();
+        }}
+        isDesktopSite={isDesktopSite}
+        onToggleDesktopSite={() => {
+          setIsDesktopSite(prev => !prev);
+          setIsMenuOpen(false);
+        }}
       />
 
       {/* 3. Main View */}
@@ -922,6 +933,7 @@ function BrowserApp() {
                 setLoadProgress(1);
               }
             }}
+            isDesktopSite={isDesktopSite}
           />
         </View>
 

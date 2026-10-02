@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import {
   StyleSheet,
   Text,
@@ -58,11 +58,11 @@ function TabPreview({ url, screenshotUri, isBlocked, isActive }: { url: string; 
 
   // Otherwise, show default globe placeholder
   return (
-    <View style={[styles.placeholderPreview, { backgroundColor: isActive ? COLORS.blueLight : COLORS.greyLight }]}>
+    <View style={styles.placeholderPreview}>
       <Ionicons
         name="globe-outline"
         size={32}
-        color={isActive ? COLORS.blueAccent : COLORS.textLight}
+        color={COLORS.textLight}
       />
     </View>
   );
@@ -82,6 +82,20 @@ export default function TabSwitcherModal({
 }: TabSwitcherModalProps) {
   const { width, height } = useWindowDimensions();
   const tabWidth = (width - 30) / 2;
+  const listRef = useRef<FlatList<BrowserTab>>(null);
+
+  // Scroll the grid to the active tab whenever the switcher opens, instead of always starting at the top.
+  // With numColumns > 1, FlatList groups data into rows internally, so scrollToIndex expects a row index.
+  useEffect(() => {
+    if (!visible) return;
+    const index = tabs.findIndex(tab => tab.id === activeTabId);
+    if (index < 0) return;
+    const rowIndex = Math.floor(index / 2);
+    const timer = setTimeout(() => {
+      listRef.current?.scrollToIndex({ index: rowIndex, animated: false, viewPosition: 0.3 });
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [visible, activeTabId, tabs]);
 
   return (
     <Modal
@@ -115,6 +129,7 @@ export default function TabSwitcherModal({
 
         {/* Tab Grid */}
         <FlatList
+          ref={listRef}
           style={styles.switcherScrollView}
           data={tabs}
           keyExtractor={tab => tab.id}
@@ -122,6 +137,11 @@ export default function TabSwitcherModal({
           columnWrapperStyle={styles.switcherRow}
           contentContainerStyle={styles.switcherGridContainer}
           showsVerticalScrollIndicator={false}
+          onScrollToIndexFailed={({ index, averageItemLength }) => {
+            setTimeout(() => {
+              listRef.current?.scrollToOffset({ offset: index * averageItemLength, animated: false });
+            }, 50);
+          }}
           renderItem={({ item: tab }) => {
               const isActive = tab.id === activeTabId;
               const domain = getDisplayDomain(tab.url);
@@ -136,7 +156,7 @@ export default function TabSwitcherModal({
                   activeOpacity={0.85}
                   delayPressIn={100}
                 >
-                  {/* Tab Card Header — with favicon placeholder + title + close */}
+                  {/* Tab Card Header — favicon placeholder + title + close */}
                   <View style={[
                     styles.tabCardHeader,
                     isActive && styles.tabCardHeaderActive,
@@ -146,7 +166,7 @@ export default function TabSwitcherModal({
                         <Ionicons
                           name="globe-outline"
                           size={14}
-                          color={isActive ? COLORS.blueAccent : COLORS.textLight}
+                          color={COLORS.textLight}
                         />
                       </View>
                       <Text
@@ -164,23 +184,18 @@ export default function TabSwitcherModal({
                       style={styles.tabCardCloseBtn}
                       hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                     >
-                      <Ionicons name="close" size={16} color={COLORS.greyDark} />
+                      <Ionicons name="close" size={16} color={isActive ? COLORS.white : COLORS.textMedium} />
                     </TouchableOpacity>
                   </View>
 
-                  {/* Tab Card Body — page preview */}
+                  {/* Tab Card Body — page preview fills the card, as in Chrome */}
                   <View style={styles.tabCardBody}>
-                    <View style={styles.pagePreview}>
-                      <TabPreview
-                        url={tab.url}
-                        screenshotUri={tab.screenshotUri}
-                        isBlocked={isUrlBlocked(tab.url)}
-                        isActive={isActive}
-                      />
-                    </View>
-                    <Text numberOfLines={1} style={styles.tabCardUrl}>
-                      {tab.url.replace(/^https?:\/\/(www\.)?/i, '')}
-                    </Text>
+                    <TabPreview
+                      url={tab.url}
+                      screenshotUri={tab.screenshotUri}
+                      isBlocked={isUrlBlocked(tab.url)}
+                      isActive={isActive}
+                    />
                   </View>
                 </TouchableOpacity>
               );
@@ -215,7 +230,7 @@ const styles = StyleSheet.create({
   switcherContainer: {
     flex: 1,
     overflow: 'hidden',
-    backgroundColor: COLORS.surfaceGrey,
+    backgroundColor: COLORS.switcherBg,
   },
   switcherHeader: {
     flexDirection: 'row-reverse',
@@ -223,9 +238,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 12,
     height: 56,
-    backgroundColor: COLORS.white,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: COLORS.divider,
+    backgroundColor: COLORS.switcherBg,
   },
   switcherHeaderBtn: {
     width: 40,
@@ -251,31 +264,28 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   tabCard: {
-    height: 195,
+    height: 240,
     backgroundColor: COLORS.white,
-    borderRadius: 12,
+    borderRadius: 16,
     marginBottom: 12,
-    borderWidth: 1.5,
-    borderColor: COLORS.divider,
+    borderWidth: 2,
+    borderColor: 'transparent',
     overflow: 'hidden',
     ...TAB_SHADOW,
   },
   tabCardActive: {
-    borderColor: COLORS.blueAccent,
-    borderWidth: 2,
+    borderColor: COLORS.tabActiveNavy,
   },
   tabCardHeader: {
-    height: 38,
+    height: 40,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: COLORS.greyLight,
+    backgroundColor: COLORS.tabHeaderInactive,
     paddingHorizontal: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: COLORS.divider,
   },
   tabCardHeaderActive: {
-    backgroundColor: COLORS.blueLight,
+    backgroundColor: COLORS.tabActiveNavy,
   },
   tabCardHeaderLeft: {
     flexDirection: 'row',
@@ -298,23 +308,18 @@ const styles = StyleSheet.create({
   tabCardTitle: {
     fontSize: 12,
     fontWeight: '600',
-    color: COLORS.textMedium,
+    color: COLORS.textDark,
     flex: 1,
   },
   tabCardTitleActive: {
-    color: COLORS.blueAccent,
+    color: COLORS.white,
   },
   tabCardBody: {
     flex: 1,
-    justifyContent: 'space-between',
-    padding: 12,
-  },
-  pagePreview: {
-    flex: 1,
+    backgroundColor: COLORS.white,
   },
   imagePreviewWrapper: {
     flex: 1,
-    borderRadius: 8,
     overflow: 'hidden',
     backgroundColor: COLORS.surfaceGrey,
     justifyContent: 'center',
@@ -331,31 +336,23 @@ const styles = StyleSheet.create({
   },
   placeholderPreview: {
     flex: 1,
-    borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
   },
   blockedPreview: {
     flex: 1,
-    borderRadius: 8,
     backgroundColor: COLORS.redLightBg,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  tabCardUrl: {
-    fontSize: 10,
-    color: COLORS.textLight,
-    textAlign: 'left',
-    marginTop: 4,
   },
   switcherFooter: {
     flexDirection: 'row-reverse',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: COLORS.white,
+    backgroundColor: COLORS.switcherBg,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: COLORS.divider,
+    borderTopColor: COLORS.greyMedium,
   },
   switcherCloseAllBtn: {
     flexDirection: 'row-reverse',

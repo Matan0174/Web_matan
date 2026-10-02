@@ -12,7 +12,13 @@ export const COLORS = {
   greyDark: '#5f6368',
   surfaceGrey: '#f8f9fa',
   divider: '#e8eaed',
-  toolbarBg: '#ffffff',
+
+  // Sampled from Chrome on Android (Material You surfaces)
+  toolbarBg: '#eaecf0',
+  omniboxFill: '#ffffff',
+  switcherBg: '#faf8ff',
+  tabHeaderInactive: '#dddeeb',
+  tabActiveNavy: '#2a4174',
 
   // Chrome text hierarchy
   textDark: '#202124',

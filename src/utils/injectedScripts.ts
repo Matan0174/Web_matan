@@ -76,10 +76,41 @@ export const PULL_TO_REFRESH_JS = `
         return null;
       }
 
+      /**
+       * 'touch-action' is how a page declares it drives a gesture itself. Any
+       * value that withholds vertical panning (none, pan-x, pinch-zoom) means a
+       * downward drag belongs to the page, not to us.
+       */
+      function blocksVerticalPan(ta) {
+        if (!ta || ta === 'auto' || ta === 'manipulation') return false;
+        if (ta.indexOf('pan-y') !== -1 || ta.indexOf('pan-down') !== -1) return false;
+        return true;
+      }
+
+      /**
+       * Panning a map moves a canvas by transform, so the document never
+       * scrolls and the scroll-position test alone would arm a refresh on every
+       * downward drag. Treat a drag that starts on a self-driven surface as the
+       * page's own gesture.
+       */
+      function isSelfDrivenSurface(el) {
+        while (el && el !== document.documentElement && el !== document) {
+          try {
+            if (el.tagName === 'CANVAS') return true;
+            var cs = window.getComputedStyle(el);
+            if (blocksVerticalPan(cs.touchAction)) return true;
+            if (el.closest && el.closest('.mapboxgl-map,.leaflet-container,.gm-style,.ol-viewport,[role="application"]')) return true;
+          } catch(e) {}
+          el = el.parentElement;
+        }
+        return false;
+      }
+
       function isPageAtTop(target) {
         var mainScroll = window.scrollY || window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0;
         if (mainScroll > 1) return false;
         if (findScrolledParent(target)) return false;
+        if (isSelfDrivenSurface(target)) return false;
         return true;
       }
 
@@ -99,6 +130,9 @@ export const PULL_TO_REFRESH_JS = `
 
       document.addEventListener('touchmove', function(e) {
         if (!pulling || refreshing) return;
+        // This listener bubbles to document, so it runs after the page's own
+        // handlers: a prevented default means the page is driving this drag.
+        if (e.defaultPrevented) { pulling = false; hideIndicator(); return; }
         var mainScroll = window.scrollY || window.pageYOffset || 0;
         if (mainScroll > 1) { pulling = false; hideIndicator(); return; }
         var dy = e.touches[0].pageY - startY;
@@ -118,6 +152,8 @@ export const PULL_TO_REFRESH_JS = `
 
       document.addEventListener('touchend', function(e) {
         if (!pulling || refreshing) return;
+        var endTarget = e.changedTouches && e.changedTouches[0] ? e.changedTouches[0].target : null;
+        if (endTarget && isSelfDrivenSurface(endTarget)) { pulling = false; hideIndicator(); return; }
         var dy = (e.changedTouches && e.changedTouches[0] ? e.changedTouches[0].pageY : 0) - startY;
         var elapsed = Date.now() - startTime;
         if (dy - DEAD_ZONE >= THRESHOLD && elapsed >= MIN_DURATION_MS) {

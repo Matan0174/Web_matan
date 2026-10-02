@@ -27,6 +27,9 @@ interface DropdownMenuModalProps {
   onClearCache: () => void;
   onQuickBlockSite: () => void;
   onOpenSettings: () => void;
+  onAddNewTab: () => void;
+  isDesktopSite: boolean;
+  onToggleDesktopSite: () => void;
 }
 
 export default function DropdownMenuModal({
@@ -45,6 +48,9 @@ export default function DropdownMenuModal({
   onClearCache,
   onQuickBlockSite,
   onOpenSettings,
+  onAddNewTab,
+  isDesktopSite,
+  onToggleDesktopSite,
 }: DropdownMenuModalProps) {
   if (!visible) return null;
 
@@ -61,7 +67,7 @@ export default function DropdownMenuModal({
         onPress={onClose}
       >
         <View style={styles.dropdownMenu}>
-          {/* Navigation Row: Back / Forward / Refresh / Home */}
+          {/* Icon action row — Chrome keeps these flat, with no button chrome */}
           <View style={styles.navRow}>
             <TouchableOpacity
               onPress={() => {
@@ -71,11 +77,7 @@ export default function DropdownMenuModal({
               style={styles.navBtn}
               activeOpacity={0.6}
             >
-              <Ionicons
-                name="chevron-back"
-                size={22}
-                color={COLORS.textDark}
-              />
+              <Ionicons name="arrow-forward" size={22} color={COLORS.textDark} />
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => {
@@ -85,21 +87,18 @@ export default function DropdownMenuModal({
               style={styles.navBtn}
               activeOpacity={0.6}
             >
-              <Ionicons
-                name="chevron-forward"
-                size={22}
-                color={COLORS.textDark}
-              />
+              <Ionicons name="arrow-back" size={22} color={COLORS.textDark} />
             </TouchableOpacity>
             <TouchableOpacity
-              onPress={() => {
-                onClose();
-                onRefresh();
-              }}
+              onPress={onToggleBookmark}
               style={styles.navBtn}
               activeOpacity={0.6}
             >
-              <Ionicons name="reload-outline" size={20} color={COLORS.textDark} />
+              <Ionicons
+                name={isCurrentPageBookmarked ? 'star' : 'star-outline'}
+                size={22}
+                color={isCurrentPageBookmarked ? COLORS.blueAccent : COLORS.textDark}
+              />
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => {
@@ -109,47 +108,35 @@ export default function DropdownMenuModal({
               style={styles.navBtn}
               activeOpacity={0.6}
             >
-              <Ionicons name="home-outline" size={20} color={COLORS.textDark} />
+              <Ionicons name="home-outline" size={21} color={COLORS.textDark} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => {
+                onClose();
+                onRefresh();
+              }}
+              style={styles.navBtn}
+              activeOpacity={0.6}
+            >
+              <Ionicons name="reload" size={21} color={COLORS.textDark} />
             </TouchableOpacity>
           </View>
 
           <View style={styles.menuDivider} />
 
-          {/* Share */}
-          <TouchableOpacity style={styles.menuItem} onPress={onSharePage}>
-            <Ionicons
-              name={Platform.OS === 'ios' ? 'share-outline' : 'share-social-outline'}
-              size={22}
-              color={COLORS.greyDark}
-            />
-            <Text style={styles.menuItemText}>שתף...</Text>
-          </TouchableOpacity>
-
-          {/* Bookmark Toggle */}
-          <TouchableOpacity style={styles.menuItem} onPress={onToggleBookmark}>
-            <Ionicons
-              name={isCurrentPageBookmarked ? 'bookmark' : 'bookmark-outline'}
-              size={22}
-              color={isCurrentPageBookmarked ? COLORS.blueAccent : COLORS.greyDark}
-            />
-            <Text style={[styles.menuItemText, isCurrentPageBookmarked && { color: COLORS.blueAccent }]}>
-              {isCurrentPageBookmarked ? 'הסר סימנייה' : 'הוסף סימנייה'}
-            </Text>
-          </TouchableOpacity>
-
-          <View style={styles.menuDivider} />
-
-          {/* Find in page */}
+          {/* New tab — Chrome's first menu entry */}
           <TouchableOpacity
             style={styles.menuItem}
             onPress={() => {
               onClose();
-              Alert.alert('מצא בדף', 'פיצ\'ר חיפוש בדף יתווסף בגרסה הבאה.');
+              onAddNewTab();
             }}
           >
-            <Ionicons name="search-outline" size={22} color={COLORS.greyDark} />
-            <Text style={styles.menuItemText}>מצא בדף</Text>
+            <Ionicons name="add-circle-outline" size={22} color={COLORS.greyDark} />
+            <Text style={styles.menuItemText}>כרטיסייה חדשה</Text>
           </TouchableOpacity>
+
+          <View style={styles.menuDivider} />
 
           {/* History */}
           <TouchableOpacity
@@ -163,17 +150,19 @@ export default function DropdownMenuModal({
             <Text style={styles.menuItemText}>היסטוריה</Text>
           </TouchableOpacity>
 
-          {/* Bookmarks */}
+          {/* Clear browsing data */}
           <TouchableOpacity
             style={styles.menuItem}
             onPress={() => {
               onClose();
-              onOpenBookmarks();
+              onClearCache();
             }}
           >
-            <Ionicons name="bookmark-outline" size={22} color={COLORS.greyDark} />
-            <Text style={styles.menuItemText}>סימניות</Text>
+            <Ionicons name="trash-outline" size={22} color={COLORS.greyDark} />
+            <Text style={styles.menuItemText}>ניקוי נתוני גלישה</Text>
           </TouchableOpacity>
+
+          <View style={styles.menuDivider} />
 
           {/* Downloads */}
           <TouchableOpacity
@@ -187,16 +176,49 @@ export default function DropdownMenuModal({
             <Text style={styles.menuItemText}>הורדות</Text>
           </TouchableOpacity>
 
-          {/* Clear Cache */}
+          {/* Bookmarks */}
           <TouchableOpacity
             style={styles.menuItem}
             onPress={() => {
               onClose();
-              onClearCache();
+              onOpenBookmarks();
             }}
           >
-            <Ionicons name="trash-outline" size={22} color={COLORS.greyDark} />
-            <Text style={styles.menuItemText}>נקה מטמון</Text>
+            <Ionicons name="star-outline" size={22} color={COLORS.greyDark} />
+            <Text style={styles.menuItemText}>סימניות</Text>
+          </TouchableOpacity>
+
+          <View style={styles.menuDivider} />
+
+          {/* Share */}
+          <TouchableOpacity style={styles.menuItem} onPress={onSharePage}>
+            <Ionicons
+              name={Platform.OS === 'ios' ? 'share-outline' : 'share-social-outline'}
+              size={22}
+              color={COLORS.greyDark}
+            />
+            <Text style={styles.menuItemText}>שיתוף...</Text>
+          </TouchableOpacity>
+
+          {/* Find in page */}
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => {
+              onClose();
+              Alert.alert('חיפוש בדף', 'פיצ\'ר חיפוש בדף יתווסף בגרסה הבאה.');
+            }}
+          >
+            <Ionicons name="search-outline" size={22} color={COLORS.greyDark} />
+            <Text style={styles.menuItemText}>חיפוש בדף</Text>
+          </TouchableOpacity>
+
+          {/* Desktop site toggle — Chrome shows a checkbox on the trailing edge */}
+          <TouchableOpacity style={styles.menuItem} onPress={onToggleDesktopSite}>
+            <Ionicons name="desktop-outline" size={22} color={COLORS.greyDark} />
+            <Text style={styles.menuItemText}>לגרסה במחשב</Text>
+            <View style={[styles.checkbox, isDesktopSite && styles.checkboxChecked]}>
+              {isDesktopSite && <Ionicons name="checkmark" size={14} color={COLORS.white} />}
+            </View>
           </TouchableOpacity>
 
           <View style={styles.menuDivider} />
@@ -234,8 +256,8 @@ const styles = StyleSheet.create({
     top: 48,
     right: 8,
     backgroundColor: COLORS.white,
-    borderRadius: 12,
-    width: 220,
+    borderRadius: 16,
+    width: 268,
     paddingVertical: 8,
     ...DROPDOWN_SHADOW,
   },
@@ -243,35 +265,47 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-end',
-    paddingVertical: 13,
+    paddingVertical: 14,
     paddingHorizontal: 18,
-    gap: 14,
+    gap: 16,
   },
   menuItemText: {
-    fontSize: 15,
-    color: COLORS.textMedium,
+    flex: 1,
+    fontSize: 16,
+    color: COLORS.textDark,
     textAlign: 'right',
   },
   menuDivider: {
     height: StyleSheet.hairlineWidth,
-    backgroundColor: COLORS.divider,
+    backgroundColor: COLORS.greyMedium,
     marginVertical: 4,
     marginHorizontal: 16,
   },
   navRow: {
     flexDirection: 'row',
-    justifyContent: 'space-evenly',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
   },
   navBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 44,
+    height: 44,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: COLORS.greyLight,
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 3,
+    borderWidth: 2,
+    borderColor: COLORS.greyDark,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  checkboxChecked: {
+    backgroundColor: COLORS.blueAccent,
+    borderColor: COLORS.blueAccent,
   },
   menuItemBlock: {
     marginHorizontal: 8,

@@ -6,12 +6,10 @@ import {
   TouchableOpacity,
   Text,
   Animated,
-  Share,
-  Platform,
   Keyboard,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { COLORS, SHADOWS, DROPDOWN_SHADOW } from '../styles/globalStyles';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+import { COLORS } from '../styles/globalStyles';
 
 interface ToolbarHeaderProps {
   urlInput: string;
@@ -112,6 +110,16 @@ export default function ToolbarHeader({
   return (
     <View style={styles.toolbarWrapper}>
       <View style={styles.toolbarHeader}>
+        {/* Home Button — far left edge of the toolbar */}
+        <TouchableOpacity
+          onPress={handleGoHome}
+          style={styles.iconButton}
+          activeOpacity={0.6}
+          accessibilityLabel="דף הבית"
+        >
+          <Ionicons name="home-outline" size={21} color={COLORS.textDark} />
+        </TouchableOpacity>
+
         {/* Address Bar — takes center stage like Chrome */}
         <View style={styles.addressBarContainer}>
           {/* Security indicator or search icon */}
@@ -123,39 +131,54 @@ export default function ToolbarHeader({
               style={styles.addressBarIcon}
             />
           ) : isHttps ? (
-            <Ionicons
-              name="lock-closed"
-              size={14}
-              color={COLORS.greenSecure}
+            <MaterialIcons
+              name="tune"
+              size={16}
+              color={COLORS.greyDark}
               style={styles.addressBarIcon}
             />
           ) : (
             <Ionicons
-              name="information-circle-outline"
+              name="warning-outline"
               size={16}
-              color={COLORS.textLight}
+              color={COLORS.redWarning}
               style={styles.addressBarIcon}
             />
           )}
 
-          <TextInput
-            ref={inputRef}
-            style={styles.addressBarInput}
-            value={isInputFocused ? urlInput : displayUrl}
-            onChangeText={setUrlInput}
-            onTouchStart={() => setIsInputFocused(true)}
-            onBlur={() => setIsInputFocused(false)}
-            onSubmitEditing={handleNavigate}
-            selectTextOnFocus
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="url"
-            returnKeyType="go"
-            placeholder="חפש בגוגל או הזן כתובת אתר"
-            placeholderTextColor={COLORS.textDisabled}
-          />
+          {/* While idle the URL is plain Text so a long address truncates at the
+              end like Chrome; a TextInput instead scrolls to its tail and hides
+              the host, which is the part that matters most. */}
+          {isInputFocused ? (
+            <TextInput
+              ref={inputRef}
+              style={styles.addressBarInput}
+              value={urlInput}
+              onChangeText={setUrlInput}
+              onBlur={() => setIsInputFocused(false)}
+              onSubmitEditing={handleNavigate}
+              autoFocus
+              selectTextOnFocus
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+              returnKeyType="go"
+              placeholder="חפש בגוגל או הזן כתובת אתר"
+              placeholderTextColor={COLORS.textDisabled}
+            />
+          ) : (
+            <Text
+              style={styles.addressBarText}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+              onPress={() => setIsInputFocused(true)}
+              suppressHighlighting
+            >
+              {displayUrl}
+            </Text>
+          )}
 
-          {isInputFocused && urlInput.length > 0 ? (
+          {isInputFocused && urlInput.length > 0 && (
             <TouchableOpacity
               onPress={() => setUrlInput('')}
               style={styles.clearInputBtn}
@@ -163,19 +186,7 @@ export default function ToolbarHeader({
             >
               <Ionicons name="close-circle" size={18} color={COLORS.textLight} />
             </TouchableOpacity>
-          ) : !isInputFocused ? (
-            <TouchableOpacity
-              onPress={handleShare}
-              style={styles.shareBtn}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <Ionicons
-                name={Platform.OS === 'ios' ? 'share-outline' : 'share-social-outline'}
-                size={18}
-                color={COLORS.textLight}
-              />
-            </TouchableOpacity>
-          ) : null}
+          )}
         </View>
 
         {/* New Tab Button */}
@@ -186,7 +197,7 @@ export default function ToolbarHeader({
           hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
           accessibilityLabel="כרטיסייה חדשה"
         >
-          <Ionicons name="add" size={24} color={COLORS.greyDark} />
+          <Ionicons name="add" size={24} color={COLORS.textDark} />
         </TouchableOpacity>
 
         {/* Tab Indicator Button — Chrome square with count */}
@@ -202,13 +213,13 @@ export default function ToolbarHeader({
           </View>
         </TouchableOpacity>
 
-        {/* 3-Dots Menu Button */}
+        {/* 3-Dots Menu Button — far right edge of the toolbar */}
         <TouchableOpacity
           onPress={handleOpenMenu}
           style={styles.iconButton}
           activeOpacity={0.6}
         >
-          <Ionicons name="ellipsis-vertical" size={20} color={COLORS.greyDark} />
+          <Ionicons name="ellipsis-vertical" size={20} color={COLORS.textDark} />
         </TouchableOpacity>
       </View>
 
@@ -235,41 +246,50 @@ export default function ToolbarHeader({
       {/* Search Suggestions Dropdown */}
       {showSuggestions && (
         <View style={styles.suggestionsContainer}>
-          {suggestions.map((item, index) => (
-            <View
-              key={`${item}-${index}`}
-              style={[
-                styles.suggestionRow,
-                index === suggestions.length - 1 && styles.suggestionRowLast,
-              ]}
-            >
-              {/* Kept as siblings rather than nested: a TouchableOpacity inside
-                  another one never receives the press on Android. */}
-              <TouchableOpacity
-                style={styles.suggestionMain}
-                onPress={() => onSelectSuggestion?.(item)}
-                activeOpacity={0.6}
+          {suggestions.map((item, index) => {
+            // Chrome renders the part the user already typed in regular weight and
+            // the completion in bold, so the new characters stand out.
+            const typed = urlInput.trim().toLowerCase();
+            const matchesPrefix = typed.length > 0 && item.toLowerCase().startsWith(typed);
+            const prefix = matchesPrefix ? item.slice(0, typed.length) : '';
+            const completion = matchesPrefix ? item.slice(typed.length) : item;
+            return (
+              <View
+                key={`${item}-${index}`}
+                style={[
+                  styles.suggestionRow,
+                  index === suggestions.length - 1 && styles.suggestionRowLast,
+                ]}
               >
-                <Ionicons
-                  name="search-outline"
-                  size={16}
-                  color={COLORS.textLight}
-                  style={styles.suggestionIcon}
-                />
-                <Text style={styles.suggestionText} numberOfLines={1}>
-                  {item}
-                </Text>
-              </TouchableOpacity>
-              {/* Arrow to fill suggestion into input */}
-              <TouchableOpacity
-                onPress={() => setUrlInput(item)}
-                style={styles.suggestionFillBtn}
-                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-              >
-                <Ionicons name="arrow-up-outline" size={16} color={COLORS.textLight} style={{ transform: [{ rotate: '-45deg' }] }} />
-              </TouchableOpacity>
-            </View>
-          ))}
+                {/* Kept as siblings rather than nested: a TouchableOpacity inside
+                    another one never receives the press on Android. */}
+                <TouchableOpacity
+                  style={styles.suggestionMain}
+                  onPress={() => onSelectSuggestion?.(item)}
+                  activeOpacity={0.6}
+                >
+                  <Ionicons
+                    name="search-outline"
+                    size={18}
+                    color={COLORS.textMedium}
+                    style={styles.suggestionIcon}
+                  />
+                  <Text style={styles.suggestionText} numberOfLines={1}>
+                    {prefix}
+                    <Text style={styles.suggestionCompletion}>{completion}</Text>
+                  </Text>
+                </TouchableOpacity>
+                {/* Arrow to fill suggestion into input */}
+                <TouchableOpacity
+                  onPress={() => setUrlInput(item)}
+                  style={styles.suggestionFillBtn}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                >
+                  <Ionicons name="arrow-up-outline" size={18} color={COLORS.textMedium} style={{ transform: [{ rotate: '45deg' }] }} />
+                </TouchableOpacity>
+              </View>
+            );
+          })}
         </View>
       )}
     </View>
@@ -278,34 +298,31 @@ export default function ToolbarHeader({
 
 const styles = StyleSheet.create({
   toolbarWrapper: {
-    backgroundColor: COLORS.white,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: COLORS.divider,
+    backgroundColor: COLORS.toolbarBg,
     zIndex: 100,
-    ...SHADOWS,
   },
   toolbarHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     height: 52,
-    backgroundColor: COLORS.white,
-    paddingHorizontal: 8,
+    backgroundColor: COLORS.toolbarBg,
+    paddingHorizontal: 6,
     paddingVertical: 6,
   },
   iconButton: {
-    width: 32,
-    height: 36,
+    width: 38,
+    height: 38,
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: 18,
+    borderRadius: 19,
   },
   addressBarContainer: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.greyLight,
-    borderRadius: 24,
-    height: 40,
+    backgroundColor: COLORS.omniboxFill,
+    borderRadius: 22,
+    height: 44,
     marginHorizontal: 4,
     paddingHorizontal: 14,
   },
@@ -314,38 +331,40 @@ const styles = StyleSheet.create({
   },
   addressBarInput: {
     flex: 1,
-    fontSize: 14,
+    fontSize: 15,
     color: COLORS.textDark,
     paddingVertical: 0,
+    textAlign: 'left',
+  },
+  addressBarText: {
+    flex: 1,
+    fontSize: 15,
+    color: COLORS.textDark,
     textAlign: 'left',
   },
   clearInputBtn: {
     marginLeft: 4,
     padding: 2,
   },
-  shareBtn: {
-    marginLeft: 4,
-    padding: 2,
-  },
   tabIndicatorButton: {
-    width: 32,
-    height: 36,
+    width: 38,
+    height: 38,
     justifyContent: 'center',
     alignItems: 'center',
   },
   tabIndicatorBox: {
-    width: 22,
-    height: 22,
+    width: 23,
+    height: 23,
     borderWidth: 2,
-    borderColor: COLORS.greyDark,
-    borderRadius: 5,
+    borderColor: COLORS.textDark,
+    borderRadius: 6,
     justifyContent: 'center',
     alignItems: 'center',
   },
   tabIndicatorText: {
     fontSize: 11,
     fontWeight: 'bold',
-    color: COLORS.greyDark,
+    color: COLORS.textDark,
     lineHeight: 13,
   },
   progressBarTrack: {
@@ -361,19 +380,16 @@ const styles = StyleSheet.create({
   },
   // Search Suggestions styles
   suggestionsContainer: {
-    backgroundColor: COLORS.white,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: COLORS.divider,
-    paddingHorizontal: 4,
+    backgroundColor: COLORS.toolbarBg,
     paddingBottom: 4,
   },
   suggestionRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 11,
-    paddingHorizontal: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 18,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: COLORS.divider,
+    borderBottomColor: COLORS.greyMedium,
   },
   suggestionMain: {
     flex: 1,
@@ -384,12 +400,15 @@ const styles = StyleSheet.create({
     borderBottomWidth: 0,
   },
   suggestionIcon: {
-    marginRight: 14,
+    marginRight: 16,
   },
   suggestionText: {
     flex: 1,
-    fontSize: 15,
+    fontSize: 16,
     color: COLORS.textDark,
+  },
+  suggestionCompletion: {
+    fontWeight: '700',
   },
   suggestionFillBtn: {
     padding: 4,

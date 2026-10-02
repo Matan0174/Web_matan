@@ -17,6 +17,11 @@ import { BrowserTab } from '../types/browser';
  */
 const WEBVIEW_DEBUGGING = false;
 
+const MOBILE_USER_AGENT =
+  'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36';
+const DESKTOP_USER_AGENT =
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+
 /** Placeholder shown for a tab whose WebView has been suspended to save memory. */
 function SuspendedTabPlaceholder({ title }: { title: string }) {
   return (
@@ -49,6 +54,8 @@ interface WebViewContainerProps {
   onLoadStart: (tabId: string) => void;
   onLoadProgress: (tabId: string, progress: number) => void;
   onLoadEnd: (tabId: string) => void;
+  /** Chrome's "Desktop site" toggle — swaps the UA so sites serve their desktop layout. */
+  isDesktopSite: boolean;
 }
 
 export default function WebViewContainer({
@@ -66,6 +73,7 @@ export default function WebViewContainer({
   onLoadStart,
   onLoadProgress,
   onLoadEnd,
+  isDesktopSite,
 }: WebViewContainerProps) {
   // Track last valid URL to escape the Android renderError bug
   const lastValidUrls = React.useRef<{ [key: string]: string }>({});
@@ -127,7 +135,7 @@ export default function WebViewContainer({
             androidLayerType="none"
             thirdPartyCookiesEnabled={true}
             setSupportMultipleWindows={false}
-            userAgent="Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
+            userAgent={isDesktopSite ? DESKTOP_USER_AGENT : MOBILE_USER_AGENT}
             // ── WebView Process Recovery (Android) ──
             // In standalone APK builds the WebView process can crash silently.
             // This handler reloads the last valid URL so the user isn't stuck
