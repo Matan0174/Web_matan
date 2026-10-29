@@ -34,7 +34,13 @@ import {
   getOrigin,
 } from './src/utils/urlHelper';
 import { injectNavigate, injectScrollRestore, injectHookCall } from './src/utils/webviewNav';
-import { isExternalAppUrl, isSignInRelayUrl, parseIntentUrl } from './src/utils/externalScheme';
+import {
+  isAppHandoffCandidate,
+  isExternalAppUrl,
+  isSignInRelayUrl,
+  parseIntentUrl,
+} from './src/utils/externalScheme';
+import { openInApp } from './modules/app-handoff';
 import { loadDnsCache, checkHost, getCachedVerdict } from './src/utils/dnsFilter';
 import { enforceSafeSearch, needsSafeSearchRedirect } from './src/utils/safeSearch';
 import { STORAGE_KEYS, getJSON, getString, setJSON, setString } from './src/utils/storage';
@@ -202,11 +208,12 @@ function BrowserApp() {
   };
 
   const navigateTo = (url: string) => {
-    let target = url.trim();
-    if (!target) return;
+    const typed = url.trim();
+    if (!typed) return;
 
     setIsInputFocused(false);
-    target = normalizeNavigationUrl(target);
+    let target = normalizeNavigationUrl(typed);
+    const isSearch = target !== typed && target !== `https://${typed}`;
     if (autoBlockEnabled) target = enforceSafeSearch(target);
 
     if (isUrlProhibited(target, blacklist, autoBlockEnabled)) {
@@ -215,6 +222,9 @@ function BrowserApp() {
         prev.map(t => (t.id === activeTabId ? { ...t, url: target } : t))
       );
       setIsCurrentUrlBlocked(true);
+    } else if (!isSearch && isAppHandoffCandidate(target, undefined) && openInApp(target)) {
+      // An address an installed app owns (facebook.com → Facebook) opens there.
+      setUrlInput(activeTab.url);
     } else {
       loadInActiveTab(target);
     }
@@ -522,6 +532,12 @@ function BrowserApp() {
           // it is sent there to be turned into a download.
           injectHookCall(webViewRefs.current[tabId], 'window.__wmDeliverDownload', [data.url, '']);
         } else if (data.url && data.type === 'windowOpen' && /^https?:/i.test(data.url)) {
+          // A target=_blank link (no popupId) to a site an installed app owns opens
+          // in that app; script popups stay tabs, since their opener awaits them.
+          const fromUrl = tabs.find(t => t.id === tabId)?.url;
+          if (!data.popupId && isAppHandoffCandidate(data.url, fromUrl) && openInApp(data.url)) {
+            return;
+          }
           handleAddNewTab(
             undefined,
             data.url,
@@ -764,6 +780,16 @@ function BrowserApp() {
         setIsCurrentUrlBlocked(true);
       }
       injectScrollRestore(webViewRefs.current[tabId], scrollPositions.current[tabId], 100);
+      return false;
+    }
+
+    // Leaving for another site that an installed app owns opens the app, as in
+    // Chrome. Not from a popup tab: its redirects are what its opener awaits.
+    if (
+      !(requestingTab && requestingTab.popupId) &&
+      isAppHandoffCandidate(url, requestingTab && requestingTab.url) &&
+      openInApp(url)
+    ) {
       return false;
     }
 

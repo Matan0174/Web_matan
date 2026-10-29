@@ -12,6 +12,7 @@ android/build/
 android/app/build/
 android/.gradle/
 ios/build/
+modules/*/android/build/
 *.apk
 *.aab
 

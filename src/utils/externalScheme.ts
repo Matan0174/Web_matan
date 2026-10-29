@@ -73,6 +73,34 @@ export const isExternalAppUrl = (url: string): boolean => {
   return scheme !== '' && !OWN_SCHEMES.includes(scheme) && !SIGN_IN_RELAY_SCHEMES.includes(scheme);
 };
 
+// Second-level labels under a country TLD that are not a site of their own (ynet.co.il, bbc.co.uk).
+const SHARED_SECOND_LEVEL = ['co', 'com', 'org', 'net', 'gov', 'ac', 'edu', 'muni', 'k12', 'idf'];
+
+/** "facebook.com" for m.facebook.com and www.facebook.com alike — rough, but enough to tell sites apart. */
+const getSiteKey = (url: string): string => {
+  const match = /^[a-z][a-z0-9+.-]*:\/\/(?:[^/?#@]*@)?([^/?#:]+)/i.exec(url.trim());
+  if (!match) return '';
+  const labels = match[1].toLowerCase().split('.');
+  const keep =
+    labels.length >= 3 &&
+    labels[labels.length - 1].length === 2 &&
+    SHARED_SECOND_LEVEL.includes(labels[labels.length - 2])
+      ? 3
+      : 2;
+  return labels.slice(-keep).join('.');
+};
+
+/**
+ * True when navigating from `fromUrl` to `toUrl` is a candidate for opening an
+ * installed app: a web address on a different site. Moving around inside the
+ * site already open in the tab stays in the tab, as in Chrome.
+ */
+export const isAppHandoffCandidate = (toUrl: string, fromUrl: string | undefined): boolean => {
+  if (!/^https?:\/\//i.test(toUrl.trim())) return false;
+  const target = getSiteKey(toUrl);
+  return target !== '' && target !== getSiteKey(fromUrl || '');
+};
+
 /**
  * Parses an Android `intent:` URL. Returns null for anything else.
  *

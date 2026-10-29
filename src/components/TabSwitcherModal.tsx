@@ -16,6 +16,11 @@ import { COLORS, TAB_SHADOW } from '../styles/globalStyles';
 
 import { BrowserTab } from '../types/browser';
 
+const TAB_CARD_HEIGHT = 240;
+const TAB_CARD_GAP = 12;
+/** Must track the card's own height plus its bottom margin — see `tabCard`. */
+const TAB_ROW_HEIGHT = TAB_CARD_HEIGHT + TAB_CARD_GAP;
+
 interface TabSwitcherModalProps {
   visible: boolean;
   tabs: BrowserTab[];
@@ -84,18 +89,28 @@ export default function TabSwitcherModal({
   const tabWidth = (width - 30) / 2;
   const listRef = useRef<FlatList<BrowserTab>>(null);
 
-  // Scroll the grid to the active tab whenever the switcher opens, instead of always starting at the top.
-  // With numColumns > 1, FlatList groups data into rows internally, so scrollToIndex expects a row index.
+  // Read through refs so the scroll effect below depends on `visible` alone.
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
+  const activeTabIdRef = useRef(activeTabId);
+  activeTabIdRef.current = activeTabId;
+
+  /**
+   * Jump to the active tab when the switcher opens — and only then. Reacting to
+   * `tabs` or `activeTabId` as well would yank the grid back to the active card
+   * on every close, which is what made closing a tab scroll the list to the top.
+   * With numColumns > 1 the list is grouped into rows, so this is a row index.
+   */
   useEffect(() => {
     if (!visible) return;
-    const index = tabs.findIndex(tab => tab.id === activeTabId);
+    const index = tabsRef.current.findIndex(tab => tab.id === activeTabIdRef.current);
     if (index < 0) return;
     const rowIndex = Math.floor(index / 2);
     const timer = setTimeout(() => {
       listRef.current?.scrollToIndex({ index: rowIndex, animated: false, viewPosition: 0.3 });
     }, 50);
     return () => clearTimeout(timer);
-  }, [visible, activeTabId, tabs]);
+  }, [visible]);
 
   return (
     <Modal
@@ -137,6 +152,13 @@ export default function TabSwitcherModal({
           columnWrapperStyle={styles.switcherRow}
           contentContainerStyle={styles.switcherGridContainer}
           showsVerticalScrollIndicator={false}
+          // Every row is the same fixed height, so handing the geometry over up
+          // front spares the list from measuring as it scrolls.
+          getItemLayout={(_, index) => ({
+            length: TAB_ROW_HEIGHT,
+            offset: TAB_ROW_HEIGHT * index,
+            index,
+          })}
           onScrollToIndexFailed={({ index, averageItemLength }) => {
             setTimeout(() => {
               listRef.current?.scrollToOffset({ offset: index * averageItemLength, animated: false });
@@ -264,10 +286,10 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   tabCard: {
-    height: 240,
+    height: TAB_CARD_HEIGHT,
     backgroundColor: COLORS.white,
     borderRadius: 16,
-    marginBottom: 12,
+    marginBottom: TAB_CARD_GAP,
     borderWidth: 2,
     borderColor: 'transparent',
     overflow: 'hidden',

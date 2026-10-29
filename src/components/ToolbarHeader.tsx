@@ -7,6 +7,7 @@ import {
   Text,
   Animated,
   Keyboard,
+  Share,
 } from 'react-native';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { COLORS } from '../styles/globalStyles';
