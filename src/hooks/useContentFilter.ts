@@ -18,7 +18,11 @@ export function useContentFilter() {
   const [blacklist, setBlacklist] = useState<string[]>([]);
   const [autoBlockEnabled, setAutoBlockEnabled] = useState(true);
   /** Filtering via a family-filtering DNS resolver — see utils/dnsFilter. */
-  const [dnsFilterEnabled, setDnsFilterEnabled] = useState(false);
+  const [dnsFilterSetting, setDnsFilterEnabled] = useState(false);
+  // Automatic blocking always includes the DNS filter: the keyword list only
+  // sees the URL text, so without it a site that Google's SafeSearch hides
+  // from results still opens when its address is typed in directly.
+  const dnsFilterEnabled = autoBlockEnabled || dnsFilterSetting;
   const [isCurrentUrlBlocked, setIsCurrentUrlBlocked] = useState(false);
 
   // Manual Blacklist Input state
@@ -38,6 +42,8 @@ export function useContentFilter() {
   const saveAutoBlock = async (enabled: boolean) => {
     setAutoBlockEnabled(enabled);
     await setString(STORAGE_KEYS.autoBlock, enabled ? 'true' : 'false');
+    // This toggle also flips the effective DNS filter, unless it is on manually.
+    if (!dnsFilterSetting) await clearDnsCache();
   };
 
   const saveDnsFilter = async (enabled: boolean) => {

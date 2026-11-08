@@ -64,7 +64,8 @@ export default function SettingsScreen({
             <View style={styles.settingTextContainer}>
               <Text style={styles.settingLabel}>חסימת פורנוגרפיה אוטומטית</Text>
               <Text style={styles.settingDesc}>
-                מסנן אוטומטית אתרים המכילים ביטויים בעלי אופי מיני בכתובת האתר.
+                מסנן אוטומטית אתרים המכילים ביטויים בעלי אופי מיני בכתובת האתר,
+                וכולל תמיד גם את הסינון מבוסס הרשת.
               </Text>
             </View>
             <Switch
@@ -91,10 +92,16 @@ export default function SettingsScreen({
                 שים לב: כתובות האתרים שבהם גולשים נשלחות לשירות הסינון
                 (CleanBrowsing) לצורך הבדיקה.
               </Text>
+              {autoBlockEnabled && (
+                <Text style={[styles.settingDesc, { marginTop: 8, fontWeight: 'bold' }]}>
+                  פעיל תמיד כל עוד חסימת הפורנוגרפיה האוטומטית מופעלת.
+                </Text>
+              )}
             </View>
             <Switch
               value={dnsFilterEnabled}
               onValueChange={saveDnsFilter}
+              disabled={autoBlockEnabled}
               trackColor={{ false: '#dadce0', true: '#aecbfa' }}
               thumbColor={dnsFilterEnabled ? COLORS.blueAccent : COLORS.greyLight}
             />
