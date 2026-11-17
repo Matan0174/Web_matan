@@ -44,6 +44,7 @@ import { openInApp } from './modules/app-handoff';
 import { loadDnsCache, checkHost, getCachedVerdict } from './src/utils/dnsFilter';
 import { enforceSafeSearch, needsSafeSearchRedirect } from './src/utils/safeSearch';
 import { STORAGE_KEYS, getJSON, getString, setJSON, setString } from './src/utils/storage';
+import { restoreThumbnail } from './src/utils/tabThumbnails';
 import * as Updates from 'expo-updates';
 import {
   getDownloadDirectory,
@@ -129,6 +130,7 @@ function BrowserApp() {
     tabParentMap,
     warmTabIds,
     handleOpenTabSwitcher,
+    handleTabLoaded,
     handleAddNewTab,
     handleCloseTab,
     handleCloseAllTabs,
@@ -282,11 +284,14 @@ function BrowserApp() {
         if (parsedTabs && parsedTabs.length > 0) {
           // Every tab remounts on a cold start, so it has to resume at the page
           // it was left on rather than the address it was originally opened at.
-          const migratedTabs: BrowserTab[] = parsedTabs.map((t: any) => ({
-            ...t,
-            initialUrl: t.url || t.initialUrl,
-            lastActiveAt: t.lastActiveAt || Date.now(),
-          }));
+          const migratedTabs: BrowserTab[] = await Promise.all(
+            parsedTabs.map(async (t: any) => ({
+              ...t,
+              initialUrl: t.url || t.initialUrl,
+              lastActiveAt: t.lastActiveAt || Date.now(),
+              screenshotUri: await restoreThumbnail(t.screenshotUri),
+            }))
+          );
           setTabs(migratedTabs);
           // A saved id that no longer names a tab would leave every tab hidden
           // and the screen blank, so it is only honoured when it still exists.
@@ -954,6 +959,7 @@ function BrowserApp() {
               }
             }}
             onLoadEnd={(tabId) => {
+              handleTabLoaded(tabId);
               if (tabId === activeTabId) {
                 setIsLoading(false);
                 setLoadProgress(1);

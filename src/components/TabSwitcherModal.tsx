@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   StyleSheet,
   Text,
@@ -35,6 +35,8 @@ interface TabSwitcherModalProps {
 }
 
 function TabPreview({ url, screenshotUri, isBlocked, isActive }: { url: string; screenshotUri?: string; isBlocked: boolean; isActive: boolean }) {
+  const [failedUri, setFailedUri] = useState<string | undefined>();
+
   // If the url is blocked, show blocked shield icon
   if (isBlocked) {
     return (
@@ -49,13 +51,14 @@ function TabPreview({ url, screenshotUri, isBlocked, isActive }: { url: string; 
   }
 
   // If we have a local screenshot URI, render it!
-  if (screenshotUri) {
+  if (screenshotUri && screenshotUri !== failedUri) {
     return (
       <View style={styles.imagePreviewWrapper}>
         <Image
           source={{ uri: screenshotUri }}
           style={styles.previewImage}
           resizeMode="cover"
+          onError={() => setFailedUri(screenshotUri)}
         />
       </View>
     );

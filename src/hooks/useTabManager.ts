@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { View } from 'react-native';
+import { AppState, View } from 'react-native';
 import { captureRef } from 'react-native-view-shot';
 import { BrowserTab } from '../types/browser';
+import { deleteThumbnail, persistThumbnail, pruneThumbnails } from '../utils/tabThumbnails';
 
 const DEFAULT_URL = 'https://www.google.com';
 
@@ -42,25 +43,82 @@ export function useTabManager() {
   // Rate-limit tracking — timestamps of recent tab creations
   const recentTabCreations = useRef<number[]>([]);
 
-  const captureActiveTabScreenshot = async (tabId: string) => {
-    try {
-      const viewRef = viewRefs.current[tabId];
-      if (viewRef) {
-        const uri = await captureRef(viewRef, {
-          format: 'jpg',
-          quality: 0.8,
-          result: 'tmpfile',
-        });
-        setTabs(prev =>
-          prev.map(t => (t.id === tabId ? { ...t, screenshotUri: uri } : t))
-        );
-      }
-    } catch (e) {
-      console.warn('Failed to capture active tab screenshot', e);
+  // Latest values for timers and listeners that outlive the render they were created in.
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
+  const activeTabIdRef = useRef(activeTabId);
+  activeTabIdRef.current = activeTabId;
+
+  /**
+   * Tabs whose currently mounted WebView has finished loading at least once.
+   * Capturing before that would replace a good preview with a blank page —
+   * e.g. right after a cold start or after a suspended tab remounts.
+   */
+  const loadedTabs = useRef(new Set<string>());
+  /** Per-tab capture counters, so a slow capture can't overwrite a newer one. */
+  const captureSeq = useRef<{ [tabId: string]: number }>({});
+  const appliedSeq = useRef<{ [tabId: string]: number }>({});
+  /** Saved previews not yet visible in `tabs` — protected from pruning. */
+  const pendingThumbnails = useRef(new Set<string>());
+  const captureTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cancelScheduledCapture = () => {
+    if (captureTimer.current) {
+      clearTimeout(captureTimer.current);
+      captureTimer.current = null;
     }
   };
 
+  const captureActiveTabScreenshot = async (tabId: string) => {
+    const viewRef = viewRefs.current[tabId];
+    if (!viewRef || !loadedTabs.current.has(tabId)) return;
+
+    const seq = (captureSeq.current[tabId] || 0) + 1;
+    captureSeq.current[tabId] = seq;
+
+    let uri: string;
+    try {
+      const tempUri = await captureRef(viewRef, {
+        format: 'jpg',
+        quality: 0.7,
+        result: 'tmpfile',
+      });
+      uri = await persistThumbnail(tabId, tempUri);
+    } catch (e) {
+      console.warn('Failed to capture active tab screenshot', e);
+      return;
+    }
+
+    const isStale = (appliedSeq.current[tabId] || 0) > seq;
+    const tabStillOpen = tabsRef.current.some(t => t.id === tabId);
+    if (isStale || !tabStillOpen) {
+      deleteThumbnail(uri);
+      return;
+    }
+    appliedSeq.current[tabId] = seq;
+    pendingThumbnails.current.add(uri);
+    setTabs(prev =>
+      prev.map(t => (t.id === tabId ? { ...t, screenshotUri: uri } : t))
+    );
+  };
+
+  /** Debounced capture of whichever tab is active when the timer fires. */
+  const scheduleActiveTabCapture = (delayMs: number) => {
+    cancelScheduledCapture();
+    captureTimer.current = setTimeout(() => {
+      captureTimer.current = null;
+      captureActiveTabScreenshot(activeTabIdRef.current);
+    }, delayMs);
+  };
+
+  /** Called by the WebView container when a tab finishes loading a page. */
+  const handleTabLoaded = (tabId: string) => {
+    loadedTabs.current.add(tabId);
+    if (tabId === activeTabIdRef.current) scheduleActiveTabCapture(800);
+  };
+
   const handleOpenTabSwitcher = async () => {
+    cancelScheduledCapture();
     await captureActiveTabScreenshot(activeTabId);
     setIsTabSwitcherOpen(true);
   };
@@ -103,6 +161,7 @@ export function useTabManager() {
     // but shouldBlockTabCreation takes `isUserInitiated`. We'll pass `!urlToOpen` or `true`.
     if (shouldBlockTabCreation(tabs.length, !urlToOpen)) return;
 
+    cancelScheduledCapture();
     await captureActiveTabScreenshot(activeTabId);
     const newId = Math.random().toString(36).substring(7);
     const startUrl = urlToOpen || DEFAULT_URL;
@@ -191,6 +250,56 @@ export function useTabManager() {
     return ids;
   }, [tabs, activeTabId]);
 
+  // A suspended tab's WebView is unmounted, so it must load again before it
+  // can be captured.
+  useEffect(() => {
+    for (const id of Array.from(loadedTabs.current)) {
+      if (!warmTabIds.has(id)) loadedTabs.current.delete(id);
+    }
+  }, [warmTabIds]);
+
+  const activeUrl = tabs.find(t => t.id === activeTabId)?.url;
+
+  // Refresh the preview after switching tabs or navigating (including
+  // in-page navigations that never fire onLoadEnd, e.g. SPAs).
+  useEffect(() => {
+    scheduleActiveTabCapture(1500);
+    return cancelScheduledCapture;
+  }, [activeTabId, activeUrl]);
+
+  // Capture the moment the app leaves the foreground, so the preview is
+  // current even if the app is then killed from the recents screen.
+  useEffect(() => {
+    const captureNow = () => {
+      cancelScheduledCapture();
+      captureActiveTabScreenshot(activeTabIdRef.current);
+    };
+    const changeSub = AppState.addEventListener('change', state => {
+      if (state === 'background' || state === 'inactive') captureNow();
+    });
+    const blurSub = AppState.addEventListener('blur', captureNow);
+    return () => {
+      changeSub.remove();
+      blurSub.remove();
+    };
+  }, []);
+
+  // Delete previews that were replaced or whose tab was closed.
+  useEffect(() => {
+    if (!hasLoadedFromStorage) return;
+    for (const t of tabs) {
+      if (t.screenshotUri) pendingThumbnails.current.delete(t.screenshotUri);
+    }
+    const timer = setTimeout(() => {
+      pruneThumbnails(
+        uri =>
+          pendingThumbnails.current.has(uri) ||
+          tabsRef.current.some(t => t.screenshotUri === uri)
+      );
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [tabs, hasLoadedFromStorage]);
+
   const activeTab = tabs.find(t => t.id === activeTabId) || tabs[0] || {
     id: '1',
     url: DEFAULT_URL,
@@ -214,6 +323,7 @@ export function useTabManager() {
     tabParentMap,
     warmTabIds,
     captureActiveTabScreenshot,
+    handleTabLoaded,
     handleOpenTabSwitcher,
     handleAddNewTab,
     handleCloseTab,
